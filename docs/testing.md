@@ -37,6 +37,8 @@ The default provider suite uses fake executables. On macOS it launches those exe
 
 The Development Host smoke has been run on local VS Code 1.136.1/macOS. It activates Margin, checks native thread and tree counts, simulates an unsaved edit in a temporary draft, verifies its current attachment, writes a local reply and resolution, reloads state, opens the immutable original and editorial letter, and executes the diff command. It also deletes the highlighted passage, verifies its detached tree entry, manually reattaches a selection through the command, and verifies the override and unchanged original anchor. It asserts that draft bytes on disk remain unchanged. The host itself may emit unrelated built-in extension or account warnings; Margin does not call those integrations.
 
+The resolve/dismiss follow-up smoke also passed in the actual Development Host: each action collapses an expanded native thread after saving its discussion state, refresh preserves the collapsed state, and the tree still allows opening the comment. The simulated dirty draft remains unchanged on disk.
+
 The smoke checks API behavior, not visual presentation. Still inspect these manually with F5:
 
 - Dark/light/high-contrast decoration appearance and comment menu placement.

@@ -235,6 +235,10 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
   private async setStatus(arg: any, status: Discussion): Promise<void> {
     const c = await this.comment(arg); if (!c || !this.state) return;
     const next = structuredClone(this.state); next.comments[c.id].status = status; this.persist(next);
+    // Persist first: a failed state write must leave the discussion visible.
+    // persist() recreates the threads, so collapse the current instance afterward.
+    const thread = this.threads.get(c.id);
+    if (thread && status !== 'open') thread.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
   }
   private async reply(arg?: any): Promise<void> {
     const c = await this.comment(arg); if (!c || !this.state) return;
@@ -253,7 +257,7 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
     const next = structuredClone(this.state); next.comments[c.id].override = override; this.persist(next); await this.refresh();
   }
   /** Read-only diagnostics for the Extension Development Host smoke test. */
-  inspect() { return {session: this.selected?.id, threads: this.threads.size, items: this.getChildren().length, attachments: [...this.attachments.values()]}; }
+  inspect() { return {session: this.selected?.id, threads: this.threads.size, threadStates: Object.fromEntries([...this.threads].map(([id, thread]) => [id, thread.collapsibleState])), items: this.getChildren().length, attachments: [...this.attachments.values()]}; }
   dispose(): void { this.generation.next(); if (this.timer) clearTimeout(this.timer); for (const t of this.threads.values()) t.dispose(); for (const d of this.disposables) d.dispose(); }
 }
 export async function activate(context: vscode.ExtensionContext) {

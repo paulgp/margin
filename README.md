@@ -24,7 +24,7 @@ In the demo window:
 
 1. Insert text before a highlighted passage; the comment follows the editor's actual text changes.
 2. Rewrite the passage; Margin labels it `changed` when its location is defensible. Delete it or create ambiguous copies; it becomes `unanchored` and remains in the tree.
-3. Reply locally, resolve, dismiss, or reopen using thread or tree menus. Use **Margin: Filter Discussions** to show all/open/resolved/dismissed comments.
+3. Reply locally, resolve, dismiss, or reopen using thread or tree menus. Resolve and Dismiss close the editor's comment thread; the comment stays in the review tree and can be opened again. Use **Margin: Filter Discussions** to show all/open/resolved/dismissed comments.
 4. Use **Compare Reviewed Version with Current** or **Show Original**. Originals and editorial letters are read-only virtual documents.
 5. To reattach, select a nonempty passage in an eligible source file, then invoke **Reattach to Selection** from the tree or command palette. The original evidence is preserved.
 

@@ -23,8 +23,20 @@ exports.run = async () => {
   assert.ok(api.inspect().attachments[0].start > originalStart);
   assert.equal(api.inspect().attachments[0].unsaved, true);
   await vscode.commands.executeCommand('margin.reply', {id:comment.id, text:'Local test reply'});
+  for (const [command, status] of [['margin.resolve','resolved'],['margin.dismiss','dismissed']]) {
+    await vscode.commands.executeCommand('margin.reopen', {id:comment.id});
+    await vscode.commands.executeCommand('margin.open', {id:comment.id});
+    assert.equal(api.inspect().threadStates[comment.id], vscode.CommentThreadCollapsibleState.Expanded);
+    await vscode.commands.executeCommand(command, {id:comment.id});
+    assert.equal(api.inspect().threadStates[comment.id], vscode.CommentThreadCollapsibleState.Collapsed, `${command} closes the editor thread`);
+    await vscode.commands.executeCommand('margin.refresh'); await wait();
+    assert.equal(api.inspect().threadStates[comment.id], vscode.CommentThreadCollapsibleState.Collapsed, 'refresh preserves the collapsed thread');
+    assert.equal(core.loadState(root,session).state.comments[comment.id].status,status);
+    assert.equal(api.inspect().items,1,'closed discussions remain in the review tree');
+    await vscode.commands.executeCommand('margin.open', {id:comment.id});
+    assert.equal(api.inspect().threadStates[comment.id], vscode.CommentThreadCollapsibleState.Expanded, 'closed discussions can still be inspected');
+  }
   await vscode.commands.executeCommand('margin.resolve', {id:comment.id});
-  await vscode.commands.executeCommand('margin.refresh');
   const state = core.loadState(root, session).state.comments[comment.id];
   assert.equal(state.status, 'resolved'); assert.equal(state.replies[0].body, 'Local test reply');
   await vscode.commands.executeCommand('margin.original', {id:comment.id});
@@ -48,5 +60,5 @@ exports.run = async () => {
   await vscode.commands.executeCommand('margin.letter');
   assert.match(vscode.window.activeTextEditor.document.getText(), /Deterministic offline/);
   assert.deepEqual(fs.readFileSync(doc.uri.fsPath), disk, 'Margin did not save the dirty draft');
-  console.log('Margin Extension Development Host smoke passed: threads, tree, dirty-buffer mapping, local state, detached targets, manual reattachment, original/current comparison, editorial letter.');
+  console.log('Margin Extension Development Host smoke passed: threads, automatic collapse on resolve/dismiss, tree, dirty-buffer mapping, local state, detached targets, manual reattachment, original/current comparison, editorial letter.');
 };
