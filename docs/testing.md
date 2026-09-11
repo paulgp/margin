@@ -1,5 +1,7 @@
 # Verification and manual checks
 
+Project-folder follow-up: build and all **57** offline tests passed. A CLI regression test reproduces the rejected `.demo/markdown/draft.md` invocation, checks the `--root` guidance, and runs mock reviews with `--root .demo/markdown`. It verifies that sessions are stored only in the selected demo project, the reported VS Code folder agrees, and draft bytes, Git HEAD, and index remain unchanged. No live model or new editor UI check was performed for this CLI/documentation change.
+
 Run `npm ci`, then:
 
 Margin **0.2.0** installation verification: build/typecheck and all **56** offline tests passed. `npm run test:install` also passed using actual npm and VS Code 1.136.1 on the development desktop (macOS 26.6.2, Node 22.22.0). It ran the complete setup path, including `npm ci`, packaging, replacement of a simulated older development link, installation of the CLI and VSIX into temporary directories, version checks, an offline mock review through the installed CLI, and same-version reinstallation. Draft/review bytes and the former linked source stayed unchanged. The CLI is a regular standalone installation with no runtime npm dependencies or install scripts. The normal VS Code extension directory was not targeted. This smoke verifies package installation; the native comment UI is covered separately by the Development Host smoke below. No model call was made for this change. Installation on the laptop and non-macOS platforms has not been verified here.

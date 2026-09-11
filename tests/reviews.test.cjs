@@ -168,3 +168,30 @@ test('CLI executable prepare/import --json works without credentials or model ex
   assert.equal(core.loadSession(root,JSON.parse(mock.stdout).review_id).comments.length,0);
   assert.notEqual(run(['prepare','draft.md','--max-comments','NaN']).status,0);
 });
+
+test('CLI requires an explicit demo root and reports the folder VS Code must open', t => {
+  const root = fixture(t, {'draft.md':'Unrelated project source.', '.demo/markdown/draft.md':'A demo argument needs supporting evidence.\n'});
+  gitFixture(root);
+  const before = protectedEvidence(root,['draft.md','.demo/markdown/draft.md']);
+  const cli = path.resolve('packages/cli/dist/main.js');
+  const run = args => spawnSync(process.execPath,[cli,...args],{cwd:root,encoding:'utf8',env:{PATH:'/usr/bin:/bin'}});
+  const rejected = run(['review','.demo/markdown/draft.md','--provider','codex']);
+  assert.equal(rejected.status,1);
+  assert.match(rejected.stderr,/Excluded source path: .demo\/markdown\/draft.md/);
+  assert.match(rejected.stderr,/Use --root DIR/);
+  assert.match(rejected.stderr,/Open that same folder in VS Code/);
+  assert.ok(!fs.existsSync(path.join(root,'.reviews')));
+  const selected = fs.realpathSync(path.join(root,'.demo/markdown'));
+  const reviewed = run(['review','draft.md','--root','.demo/markdown','--provider','mock','--json']);
+  assert.equal(reviewed.status,0,reviewed.stderr);
+  const data = JSON.parse(reviewed.stdout);
+  assert.equal(data.project_root,selected);
+  assert.ok(reviewed.stderr.includes(`Project folder: ${selected}`));
+  assert.ok(fs.existsSync(path.join(selected,data.session)));
+  assert.equal(core.loadSession(selected,data.review_id).comments[0].anchor.path,'draft.md');
+  assert.ok(!fs.existsSync(path.join(root,'.reviews')));
+  const human = run(['review','draft.md','--root','.demo/markdown','--provider','mock']);
+  assert.equal(human.status,0,human.stderr);
+  assert.ok(human.stdout.includes(`In VS Code, open ${selected} and run Margin: Select Review`));
+  assert.deepEqual(protectedEvidence(root,['draft.md','.demo/markdown/draft.md']),before);
+});

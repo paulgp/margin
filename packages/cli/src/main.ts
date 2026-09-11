@@ -2,7 +2,7 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import {parseArgs} from 'node:util';
-import {init, prepare, importResponse, diagnostic} from '@margin/core';
+import {init, prepare, importResponse, diagnostic, sourcePath} from '@margin/core';
 import {mockProvider} from './providers';
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
@@ -32,13 +32,21 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     const stat = fs.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024) throw new Error('Response must be a regular JSON file of at most 1 MiB');
     const session = importResponse(root, rest[0], fs.readFileSync(file, 'utf8'));
-    output({review_id: session.id, session: `.reviews/sessions/${session.id}.json`}, `Imported ${session.id} (${session.comments.length} comments). Draft untouched.`); return;
+    output({project_root: root, review_id: session.id, session: `.reviews/sessions/${session.id}.json`}, `Imported ${session.id} (${session.comments.length} comments). Draft untouched.\nProject folder: ${root}\nIn VS Code, open this folder and run Margin: Select Review.`); return;
   }
   if (command !== 'prepare' && command !== 'review') throw new Error(`Unknown command: ${command}`);
   if (rest.length > 1) throw new Error('Use one positional source file or --project');
+  if (rest[0]) {
+    try { sourcePath(rest[0]); }
+    catch (error) {
+      throw new Error(`${(error as Error).message}\nProject folder: ${root}\nSource file arguments must be relative to the project folder; hidden folders and build/dependency paths are excluded.\nUse --root DIR to choose your writing project's folder, then pass the file path relative to it. Open that same folder in VS Code.`);
+    }
+  }
   process.stderr.write('Margin reviews SAVED DISK CONTENTS. Unsaved editor buffers are not captured; Margin never saves drafts.\n');
+  const location = `Project folder: ${root}\nReviews directory: ${path.join(root, '.reviews')}`;
+  process.stderr.write(values.json ? JSON.stringify({type: 'progress', message: location, project_root: root}) + '\n' : location + '\n');
   const prepared = prepare(root, {file: rest[0], project: values.project, brief: values.brief, maxComments: values['max-comments'] === undefined ? undefined : Number(values['max-comments'])});
-  const data = {request_id: prepared.request.id, snapshot_id: prepared.snapshot.id, ...prepared.paths};
+  const data = {project_root: root, request_id: prepared.request.id, snapshot_id: prepared.snapshot.id, ...prepared.paths};
   if (command === 'prepare') { output(data, `${prepared.request.id}\n${Object.entries(prepared.paths).map(([k, v]) => `${k}: ${path.join(root, v)}`).join('\n')}`); return; }
   const provider = values.provider ?? 'mock';
   if (provider !== 'mock' && provider !== 'codex') throw new Error('Provider must be mock or codex; request retained for prepare/import');
@@ -55,7 +63,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     const adapter = provider === 'mock' ? mockProvider : (await import('./codex.js')).codexProvider;
     const result = await adapter.run(prepared.request, {model: values.model, signal: controller.signal, projectRoot: root, onProgress: message => { stage = message; progress(message); }});
     const session = importResponse(root, prepared.request.id, result.response, result.provenance);
-    output({...data, review_id: session.id, session: `.reviews/sessions/${session.id}.json`}, `${session.id}: ${session.comments.length} comments\nRequest: ${prepared.request.id}\nOpen Margin: Select Review in VS Code. Draft untouched.`);
+    output({...data, review_id: session.id, session: `.reviews/sessions/${session.id}.json`}, `${session.id}: ${session.comments.length} comments\nRequest: ${prepared.request.id}\nSession: ${path.join(root, '.reviews/sessions', `${session.id}.json`)}\nIn VS Code, open ${root} and run Margin: Select Review. Draft untouched.`);
   } catch (e) {
     diagnostic(root, prepared.request.id, `Review orchestration failed (${provider}). The request is retained. Consult the CLI error; provider logs are not persisted because they can contain private runtime information.`);
     throw new Error(`${(e as Error).message}\nPrepared request retained: ${prepared.request.id}\nPacket (relative to the project root): ${prepared.paths.packet}\nFrom the project root, use margin import ${prepared.request.id} <response.json>${provider === 'codex' ? '\nFor connection diagnostics without a model call: margin doctor' : ''}`);

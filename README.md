@@ -46,6 +46,15 @@ code --reuse-window .demo/markdown
 
 Trust the disposable workspace, open `draft.md`, and use **Margin: Select Review**. The Explorer's Margin tree lists every comment. Click a comment to reveal its thread. The demo creates Markdown, Typst, and multi-file LaTeX workspaces under `.demo/`; rerunning it preserves existing source edits and creates new review sessions. No authentication or model/network call is involved. `--reuse-window` opens the demo in your existing editor; opening a new window is your choice.
 
+To generate another review from the **repository directory**, choose the demo's project root explicitly:
+
+```sh
+margin review draft.md --root .demo/markdown --provider mock
+# For a real model review, replace mock with codex.
+```
+
+The file argument is relative to `--root`. `margin review .demo/markdown/draft.md` instead selects the repository as the project root and rejects `.demo` as a hidden source path. The CLI prints the project folder and review location; VS Code must have that same project folder open. From a terminal already in `.demo/markdown`, omit `--root` and use `margin review draft.md --provider mock`.
+
 For extension development, open the repository in VS Code and press **F5**, selecting **Margin: Offline Development Host**. That development-only launch opens a separate window on `.demo/markdown`. You can also use `npm run margin -- ...` directly from the checkout without installing the CLI.
 
 In the demo window:

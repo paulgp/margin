@@ -13,4 +13,4 @@ for (const [name, file] of [['markdown','draft.md'], ['typst','draft.typ'], ['la
   const session = importResponse(target, request.id, result.response, result.provenance);
   console.log(`${name}: ${session.id}\n  workspace: ${target}`);
 }
-console.log('\nOffline demo ready. Press F5 in this repository, then use Margin: Select Review. Existing demo edits are preserved.');
+console.log('\nOffline demo ready. With Margin installed, open: code --reuse-window .demo/markdown\nThen use Margin: Select Review. For development, press F5 in this repository.\nTo review again from the repository directory: margin review draft.md --root .demo/markdown --provider mock\nExisting demo edits are preserved.');
