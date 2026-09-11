@@ -11,15 +11,33 @@ export const supportedVersion = '0.154.0';
 // 0.154.0 forces the unified_exec backend on. Disable tool exposure (shell_tool),
 // and rely on the outer OS process boundary; do not claim that backend is disabled.
 export const disabledFeatures = ['apps', 'plugins', 'remote_plugin', 'hooks', 'shell_tool', 'shell_snapshot', 'multi_agent', 'multi_agent_v2', 'code_mode', 'code_mode_host', 'browser_use', 'browser_use_external', 'computer_use', 'in_app_browser', 'image_generation', 'view_image', 'skill_search', 'skill_mcp_dependency_install', 'workspace_dependencies', 'memories', 'goals', 'request_permissions_tool', 'exec_permission_approvals', 'guardian_approval', 'in_app_local_automation', 'tool_suggest'];
-export interface RunOptions {cwd: string; env: NodeJS.ProcessEnv; input?: string; timeoutMs?: number; outputBytes?: number; signal?: AbortSignal; onLine?: (line: string, stream: 'stdout' | 'stderr') => void}
+export interface RunOptions {cwd: string; env: NodeJS.ProcessEnv; input?: string; timeoutMs?: number; outputBytes?: number; signal?: AbortSignal; onLine?: (line: string, stream: 'stdout' | 'stderr') => void; failureDetail?: (stderr: string) => string}
 
 /** Report fixed diagnostic descriptions, never model prose, secrets, URLs, or terminal escapes. */
 export function providerIssue(text: string): string | undefined {
+  // URLs can contain words such as "invalid"/"token" or status-like numbers.
+  // Do not let credentials, query parameters, or endpoint names select a diagnosis.
+  text = text.replace(/\b(?:https?|wss?):\/\/[^\s"'<>]+/gi, '[URL]');
+  if (/\b407\b|proxy.{0,40}(failed|error|authentication|connect)|tunnel.{0,20}(failed|error)/i.test(text)) return 'Codex reported a proxy connection or proxy authentication failure.';
+  if (/\b429\b|rate.limit|quota.exceeded/i.test(text)) return 'Codex reported a rate limit or exhausted quota (HTTP 429).';
+  if (/\b(500|502|503|504)\b|service unavailable|bad gateway/i.test(text)) return 'Codex reported a server or gateway error (HTTP 5xx).';
   if (/\b(401|403)\b|unauthenticated|unauthorized|authentication|invalid.{0,20}(token|api.key)|token.{0,20}(expired|refresh)/i.test(text)) return 'Codex reported an authentication or authorization problem.';
   if (/invalid.{0,30}schema|schema.{0,30}(invalid|unsupported)|invalid_request_error/i.test(text)) return 'Codex rejected the request or response schema.';
   if (/operation not permitted|permission denied|sandbox.{0,20}(failed|error)/i.test(text)) return 'Codex reported a permissions error inside the protected runtime.';
+  if (/dns|failed to resolve|name or service not known|nodename nor servname|ENOTFOUND|EAI_AGAIN/i.test(text)) return 'Codex reported a DNS resolution failure.';
+  if (/tls|ssl|certificate|UnknownIssuer|InvalidCertificate/i.test(text)) return 'Codex reported a TLS or certificate failure.';
+  if (/connection refused|ECONNREFUSED/i.test(text)) return 'Codex reported a refused network connection.';
+  if (/connection reset|ECONNRESET|broken pipe|EPIPE/i.test(text)) return 'Codex reported a reset or broken network connection.';
+  if (/websocket|web.socket/i.test(text) && /fail|error|disconnect|reconnect|closed|retry/i.test(text)) return 'Codex reported a WebSocket connection failure or retry.';
+  if (/timed out|ETIMEDOUT|connect timeout/i.test(text)) return 'Codex reported a network timeout.';
   if (/reconnect|retrying|retry attempt|error sending request|failed to (connect|resolve)|connection.{0,30}(failed|closed|reset)|dns|tls|certificate|stream disconnected|timed out/i.test(text)) return 'Codex reported a connection problem or retry.';
   return undefined;
+}
+export function providerDiagnostic(text: string): string | undefined {
+  const issue = providerIssue(text);
+  if (!issue) return undefined;
+  if (/models_manager|refresh.{0,30}(available )?models|fetch.{0,30}model.{0,10}(list|catalog)/i.test(text)) return `${issue} Reported while fetching the model catalog; this alone does not establish that the review request failed.`;
+  return issue;
 }
 export function eventProgress(line: string): {message?: string; issue?: string} {
   let event: any; try { event = JSON.parse(line); } catch { return {}; }
@@ -29,7 +47,7 @@ export function eventProgress(line: string): {message?: string; issue?: string} 
   if (event?.type === 'item.completed' && event.item?.type === 'agent_message') return {message: 'Codex produced a response; waiting for the final response file.'};
   if (event?.type === 'error' || event?.type === 'turn.failed') {
     const raw = typeof event.message === 'string' ? event.message : typeof event.error?.message === 'string' ? event.error.message : '';
-    const issue = providerIssue(raw) ?? 'Codex reported a review error.';
+    const issue = providerDiagnostic(raw) ?? 'Codex reported a review error.';
     return {message: issue, issue};
   }
   return {};
@@ -67,11 +85,11 @@ export function runProcess(executable: string, args: string[], options: RunOptio
       });
       stream.on('end', () => deliver(decoder.end(), true));
     }
-    child.on('close', (code, signal) => { cleanup(); if (failure) reject(failure); else if (code !== 0) reject(new Error(`Provider exited ${signal ?? code}: ${stderr.slice(-2000) || 'no diagnostic output; runtime may be incompatible with the isolation policy'}`)); else resolve({stdout, stderr}); });
+    child.on('close', (code, signal) => { cleanup(); if (failure) reject(failure); else if (code !== 0) reject(new Error(`Provider exited ${signal ?? code}: ${options.failureDetail ? options.failureDetail(stderr) : stderr.slice(-2000) || 'no diagnostic output; runtime may be incompatible with the isolation policy'}`)); else resolve({stdout, stderr}); });
     child.stdin.on('error', () => { /* EPIPE is reported by process exit. */ }); child.stdin.end(options.input ?? '');
   });
 }
-function executableOnPath(name: string): string {
+export function executableOnPath(name: string): string {
   if (name.includes(path.sep)) return fs.realpathSync(name);
   for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
     if (!directory || !path.isAbsolute(directory)) continue;
@@ -80,7 +98,7 @@ function executableOnPath(name: string): string {
   }
   throw new Error('Codex executable not found. Install the supported Codex CLI, or use prepare/import.');
 }
-function nativeExecutable(launcher: string): string {
+export function nativeExecutable(launcher: string): string {
   if (!launcher.endsWith('/bin/codex.js')) return launcher;
   const target = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
   const pkg = `@openai/codex-darwin-${process.arch}`;
@@ -110,6 +128,11 @@ export function verifyFeatureSettings(features: string): void {
   if (!/^skip_host_skill_discovery\s+.*\strue$/m.test(features)) throw new Error('Host skill discovery could not be disabled');
 }
 export interface CodexOptions extends ProviderOptions {executable?: string; timeoutMs?: number; authHome?: string}
+/** The doctor uses exactly the same fresh environment as a review. */
+export function protectedEnvironment(temp: string): NodeJS.ProcessEnv {
+  const home = path.join(temp, 'home');
+  return {PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, HOME: home, CODEX_HOME: path.join(home, '.codex'), TMPDIR: temp, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'), OPENSSL_CONF: '/dev/null', LANG: 'en_US.UTF-8', TERM: 'dumb'};
+}
 export async function runCodex(request: Request, options: CodexOptions = {}): Promise<ProviderResult> {
   if (process.platform !== 'darwin' || !fs.existsSync('/usr/bin/sandbox-exec')) throw new Error('Protected Codex execution currently requires macOS Seatbelt. Use the portable prepare/import workflow on this platform.');
   options.signal?.throwIfAborted();
@@ -121,9 +144,9 @@ export async function runCodex(request: Request, options: CodexOptions = {}): Pr
   if (!path.relative(projectRoot, temp).startsWith('..' + path.sep)) { fs.rmSync(temp, {recursive: true, force: true}); throw new Error('Cannot create an isolated reviewer directory outside this project root'); }
   const home = path.join(temp, 'home'), codexHome = path.join(home, '.codex'), cwd = path.join(temp, 'work');
   for (const directory of [home, codexHome, cwd]) fs.mkdirSync(directory, {recursive: true, mode: 0o700});
-  const env: NodeJS.ProcessEnv = {PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, HOME: home, CODEX_HOME: codexHome, TMPDIR: temp, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'), OPENSSL_CONF: '/dev/null', LANG: 'en_US.UTF-8', TERM: 'dumb'};
+  const env = protectedEnvironment(temp);
   const profile = seatbeltProfile(temp, executable, projectRoot);
-  const invoke = (args: string[], input?: string, timeoutMs = options.timeoutMs ?? 120000, onLine?: RunOptions['onLine']) => runProcess('/usr/bin/sandbox-exec', ['-p', profile, executable, ...args], {cwd, env, input, timeoutMs, signal: options.signal, onLine});
+  const invoke = (args: string[], input?: string, timeoutMs = options.timeoutMs ?? 120000, onLine?: RunOptions['onLine']) => runProcess('/usr/bin/sandbox-exec', ['-p', profile, executable, ...args], {cwd, env, input, timeoutMs, signal: options.signal, onLine, failureDetail: stderr => providerDiagnostic(stderr) ?? 'No recognized diagnostic. Run margin doctor to check the protected connection.'});
   try {
     options.onProgress?.('Checking the protected Codex runtime (startup probes have 5-second limits).');
     // Probe the outer boundary without invoking a model or reading credentials.
@@ -154,7 +177,7 @@ export async function runCodex(request: Request, options: CodexOptions = {}): Pr
     let lastIssue: string | undefined;
     try {
       await invoke(args, packetText(request), options.timeoutMs ?? 120000, (line, stream) => {
-        const progress = stream === 'stdout' ? eventProgress(line) : {issue: providerIssue(line)};
+        const progress = stream === 'stdout' ? eventProgress(line) : {issue: providerDiagnostic(line)};
         if (progress.issue && progress.issue !== lastIssue) {
           lastIssue = progress.issue; options.onProgress?.(lastIssue);
         } else if ('message' in progress && progress.message && !progress.issue) options.onProgress?.(progress.message);

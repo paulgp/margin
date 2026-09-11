@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {fixture,core,protectedEvidence,gitFixture} = require('./helpers.cjs');
-const {runCodex,runProcess,codexArgs,verifyRuntime,verifyFeatureSettings,disabledFeatures,supportedVersion,seatbeltProfile,eventProgress,providerIssue} = require('../packages/cli/dist/codex');
+const {runCodex,runProcess,codexArgs,verifyRuntime,verifyFeatureSettings,disabledFeatures,supportedVersion,seatbeltProfile,eventProgress,providerIssue,providerDiagnostic} = require('../packages/cli/dist/codex');
 const help = '--ignore-user-config --ignore-rules --sandbox --output-schema --output-last-message --ephemeral --strict-config --json';
 const features = [...disabledFeatures,'skip_host_skill_discovery'].map(f=>`${f} stable false`).join('\n');
 
@@ -14,7 +14,7 @@ const args=process.argv.slice(2), mode=${JSON.stringify(mode)};
 if(args.includes('--version')){console.log(mode==='version'?'codex-cli 0.1.0':${JSON.stringify('codex-cli '+supportedVersion)});process.exit(0);}
 if(args.includes('--help')){console.log(mode==='flags'?'unsupported':${JSON.stringify(help)});process.exit(0);}
 if(args.includes('features')){console.log(args.includes('-c')?${JSON.stringify(features.replace('skip_host_skill_discovery stable false','skip_host_skill_discovery stable true'))}:${JSON.stringify(features)});process.exit(0);}
-if(mode==='failure'){console.error('authentication rejected (fake)');process.exit(12);}
+if(mode==='failure'){console.error('authentication rejected (fake) SECRET');process.exit(12);}
 if(mode==='timeout'){setInterval(()=>{},1000);return;}
 if(mode==='retry-timeout'){console.log(JSON.stringify({type:'error',message:'Reconnecting after error sending request: SECRET'}));setInterval(()=>{},1000);return;}
 if(mode==='overflow'){process.stdout.write('x'.repeat(3*1024*1024));setInterval(()=>{},1000);return;}
@@ -71,6 +71,21 @@ test('progress events expose lifecycle and failure classes without printing pros
   assert.match(providerIssue('Invalid response schema'),/schema/);
 });
 
+test('connection diagnostics distinguish causes and identify model catalog warnings without quoting raw errors', () => {
+  for (const [raw, expected] of [
+    ['dns error: failed to lookup address', /DNS/], ['nodename nor servname provided', /DNS/],
+    ['TLS handshake: InvalidCertificate(UnknownIssuer)', /TLS or certificate/],
+    ['HTTP 407 proxy authentication required', /proxy/], ['HTTP 429 rate limit', /rate limit/],
+    ['HTTP 503 Service Unavailable', /server or gateway/], ['ECONNREFUSED', /refused/],
+    ['ECONNRESET', /reset or broken/], ['WebSocket handshake failed', /WebSocket/],
+    ['connect timeout: timed out', /network timeout/]
+  ]) {
+    const result=providerDiagnostic(raw+' https://user:SECRET@example.invalid/?token=SECRET\x1b[2J');
+    assert.match(result,expected); assert.ok(!/SECRET|example|\x1b/.test(result));
+  }
+  assert.match(providerDiagnostic('codex_core::models_manager: failed to refresh available models: error sending request SECRET'), /model catalog; this alone does not establish/);
+});
+
 test('streaming progress arrives before exit, handles split UTF-8, and flushes unterminated lines', async t => {
   const cwd=fixture(t,{}), lines=[];
   const source='const b=Buffer.from("🦉\\nlast");process.stdout.write(b.subarray(0,2));setTimeout(()=>{process.stdout.write(b.subarray(2));process.stderr.write("error\\n");},20);';
@@ -100,7 +115,8 @@ for (const mode of ['success','version','flags','failure','timeout','overflow','
     assert.equal(core.importResponse(root,request.id,result.response,result.provenance).comments.length,0);
   } else if(mode==='malformed') {
     const result=await runCodex(request,options);assert.throws(()=>core.importResponse(root,request.id,result.response,result.provenance),/No review installed/);
-  } else await assert.rejects(runCodex(request,{...options,...(mode==='timeout'?{timeoutMs:80}:{})}),mode==='version'?/Unsupported/:mode==='flags'?/unavailable/:mode==='failure'?/authentication rejected/:mode==='timeout'?/timed out/:mode==='overflow'?/byte limit/:mode==='missing'?/no final response/:/regular file/);
+  } else if(mode==='failure') await assert.rejects(runCodex(request,options), error=>/authentication or authorization/.test(error.message)&&!error.message.includes('SECRET'));
+  else await assert.rejects(runCodex(request,{...options,...(mode==='timeout'?{timeoutMs:80}:{})}),mode==='version'?/Unsupported/:mode==='flags'?/unavailable/:mode==='timeout'?/timed out/:mode==='overflow'?/byte limit/:mode==='missing'?/no final response/:/regular file/);
   assert.deepEqual(protectedEvidence(root,['draft.md']),before);
 });
 

@@ -6,6 +6,10 @@ Initial implementation verification on Node 22.22.0/macOS: build and typecheck p
 
 Progress-update verification: build/typecheck and all **40** default tests passed, with no skips. A separate live review completed as described below; no live calls were added to the default test suite.
 
+Connection-diagnostic verification on macOS **26.6.2**, arm64, Node **22.22.0**: all **45** default tests passed with no skips. Added offline tests cover specific error classification and redaction, fixed HEAD requests and certificate verification, DNS/TLS/deadline failures, strict probe output parsing, paired sandbox/control environments, source/index preservation, cleanup, and cancellation. Test subprocess/network results are mocked except for the existing provider tests' actual Seatbelt boundary. No live calls were added to the default tests.
+
+The actual `npm run margin -- doctor --json` command was also run on that server. Control HTTPS probes reached both hosts (HTTP 403/421); protected Node probes failed TLS certificate verification (`UNABLE_TO_GET_ISSUER_CERT_LOCALLY`). The earlier successful live Codex review used a different TLS implementation, so this finding cannot establish the cause of a laptop's Codex timeout. The laptop was reported to run macOS **14.1.1**; its protected connection and UI compatibility have not been verified here. No new live model review was run for this diagnostic change.
+
 | Command | Purpose |
 | --- | --- |
 | `npm run build` | TypeScript project build; bundled CLI and extension |

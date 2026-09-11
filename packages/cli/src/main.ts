@@ -9,7 +9,18 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   const {values, positionals} = parseArgs({args, allowPositionals: true, strict: true, options: {project: {type: 'boolean'}, brief: {type: 'string'}, 'max-comments': {type: 'string'}, provider: {type: 'string'}, model: {type: 'string'}, root: {type: 'string'}, json: {type: 'boolean'}, help: {type: 'boolean'}}});
   const root = fs.realpathSync(path.resolve(values.root ?? process.cwd())); const [command, ...rest] = positionals;
   const output = (data: unknown, human: string) => process.stdout.write(values.json ? JSON.stringify(data) + '\n' : human + '\n');
-  if (values.help || !command) { output({commands: ['init', 'prepare', 'review', 'import']}, 'Margin — source-first, comment-only review\n\nmargin init\nmargin prepare <file> | --project [--brief TEXT] [--max-comments N] [--json]\nmargin review <file> | --project --provider mock|codex [--model NAME]\nmargin import <request-id> <response.json> [--json]\n\nAll commands accept --root DIR. Reviews read saved disk contents; save deliberately in your editor first. Margin never saves or edits drafts.'); return; }
+  if (values.help || !command) { output({commands: ['init', 'prepare', 'review', 'import', 'doctor']}, 'Margin — source-first, comment-only review\n\nmargin init\nmargin prepare <file> | --project [--brief TEXT] [--max-comments N] [--json]\nmargin review <file> | --project --provider mock|codex [--model NAME]\nmargin import <request-id> <response.json> [--json]\nmargin doctor [--json] (macOS connection diagnostics; no model call)\n\nAll commands accept --root DIR. Reviews read saved disk contents; save deliberately in your editor first. Margin never saves or edits drafts.'); return; }
+  if (command === 'doctor') {
+    if (rest.length) throw new Error('doctor takes no file arguments');
+    const controller = new AbortController(), cancel = () => controller.abort();
+    process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
+    try {
+      const {doctor} = await import('./doctor.js');
+      const report = await doctor(root, {signal: controller.signal, onProgress: message => process.stderr.write(values.json ? JSON.stringify({type: 'progress', message}) + '\n' : message + '\n')});
+      output(report, `macOS ${report.macos} (${report.arch}); Node ${report.node}; ${report.codex}\nEnvironment overrides omitted: ${report.ignored_environment.join(', ') || 'none detected'}\n${report.hints.join('\n')}`);
+    } finally { process.off('SIGINT', cancel); process.off('SIGTERM', cancel); }
+    return;
+  }
   if (command === 'init') {
     if (rest.length) throw new Error('init takes no file arguments'); init(root);
     output({config: '.reviews/config.json'}, 'Initialized .reviews/config.json. Reviews and full-text snapshots are private via .reviews/.gitignore.'); return;
@@ -46,7 +57,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     output({...data, review_id: session.id, session: `.reviews/sessions/${session.id}.json`}, `${session.id}: ${session.comments.length} comments\nRequest: ${prepared.request.id}\nOpen Margin: Select Review in VS Code. Draft untouched.`);
   } catch (e) {
     diagnostic(root, prepared.request.id, `Review orchestration failed (${provider}). The request is retained. Consult the CLI error; provider logs are not persisted because they can contain private runtime information.`);
-    throw new Error(`${(e as Error).message}\nPrepared request retained: ${prepared.request.id}\nPacket: ${prepared.paths.packet}\nUse margin import ${prepared.request.id} <response.json>`);
+    throw new Error(`${(e as Error).message}\nPrepared request retained: ${prepared.request.id}\nPacket (relative to the project root): ${prepared.paths.packet}\nFrom the project root, use margin import ${prepared.request.id} <response.json>${provider === 'codex' ? '\nFor connection diagnostics without a model call: margin doctor' : ''}`);
   }
   finally { clearInterval(heartbeat); process.off('SIGINT', cancel); process.off('SIGTERM', cancel); }
 }
