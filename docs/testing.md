@@ -16,6 +16,12 @@ Retry-diagnostic verification: all **46** offline tests passed with no skips. Th
 
 A separate real review with the updated retry settings also completed on the server on 2026-09-11 in **18 seconds**, importing four comments from the bundled Markdown example. Draft bytes and Git HEAD/branch context remained unchanged. This is a live model run outside the default test suite; it does not establish that the laptop timeout is fixed.
 
+The laptop's next review reported a TLS/certificate failure from Codex despite its successful Node probes. The certificate-bundle change supplies Codex and both Node doctor modes with the public CA roots shipped in Node. **49 offline tests passed with no skips**, including a real loopback TLS server and clients inside actual Seatbelt: the selected test CA succeeds, an untrusted issuer fails, and a wrong hostname fails. The short-lived test CA/server keys are generated only in disposable fixtures; no external network or model call is involved. Bundle tests check exact correspondence to Node's public roots, CA parsing, private-key/extra-text rejection, size/count limits, exclusive writes, and symlink rejection. Provider tests continue to verify source/index protection and now assert the private certificate file and absence of TLS-bypass variables.
+
+On the server, the actual doctor command with the explicit 146-certificate bundle now reaches both hosts in both modes (HTTP 403/421); the previous protected Node certificate failure is eliminated. The bundle makes the trust roots available without expanding the sandbox's file permissions. Laptop verification of the Codex fix is still pending.
+
+A separate real Codex review with the certificate bundle completed on the server in **18 seconds**, importing four comments with draft bytes and Git HEAD/branch context unchanged. This live run is separate from the 49 offline tests and does not verify the laptop until its owner retries.
+
 | Command | Purpose |
 | --- | --- |
 | `npm run build` | TypeScript project build; bundled CLI and extension |

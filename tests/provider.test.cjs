@@ -26,6 +26,11 @@ let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>input+
   for(const flag of ${JSON.stringify(disabledFeatures)})assert.ok(args.includes('features.'+flag+'=false'));
   assert.ok(!process.env.MARGIN_TEST_SECRET);assert.ok(!process.env.NODE_OPTIONS);
   assert.equal(process.env.RUST_LOG,'warn');
+  assert.ok(process.env.CODEX_CA_CERTIFICATE.startsWith(process.env.TMPDIR+path.sep));
+  const ca=fs.readFileSync(process.env.CODEX_CA_CERTIFICATE,'utf8');
+  assert.match(ca,/^-----BEGIN CERTIFICATE-----/);assert.ok(!ca.includes('PRIVATE KEY'));
+  assert.equal(fs.statSync(process.env.CODEX_CA_CERTIFICATE).mode&0o777,0o600);
+  assert.ok(!process.env.SSL_CERT_FILE);assert.ok(!process.env.NODE_TLS_REJECT_UNAUTHORIZED);
   assert.notEqual(process.cwd(),${JSON.stringify(authorRoot)});
   assert.ok(process.env.CODEX_HOME.startsWith(process.env.HOME));
   assert.deepEqual(fs.readdirSync(process.env.CODEX_HOME),['auth.json']);
@@ -126,6 +131,7 @@ for (const mode of ['success','version','flags','failure','timeout','overflow','
     const result=await runCodex(request,{...options,onProgress:message=>progress.push(message)});assert.match(result.response,/Fake executable/);assert.equal(result.provenance.reported_model,null);
     assert.ok(progress.some(m=>m.includes('awaiting model')));assert.ok(progress.some(m=>m.includes('validation')));assert.ok(!progress.join('').includes('PRIVATE MODEL TEXT'));
     assert.ok(progress.some(m=>m.startsWith('Authentication source:')));assert.ok(progress.some(m=>m.includes('Unbounded retries disabled')));
+    assert.ok(progress.some(m=>m.startsWith('TLS trust:')&&m.includes('certificate verification remains enabled')));
     assert.equal(core.importResponse(root,request.id,result.response,result.provenance).comments.length,0);
   } else if(mode==='malformed') {
     const result=await runCodex(request,options);assert.throws(()=>core.importResponse(root,request.id,result.response,result.provenance),/No review installed/);

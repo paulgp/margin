@@ -6,6 +6,7 @@ import {createRequire} from 'node:module';
 import {StringDecoder} from 'node:string_decoder';
 import {packetText, responseSchema, json, Request} from '@margin/core';
 import {Provider, ProviderResult, ProviderOptions} from './providers';
+import {installPublicCertificates} from './certificates';
 
 export const supportedVersion = '0.154.0';
 // 0.154.0 forces the unified_exec backend on. Disable tool exposure (shell_tool),
@@ -154,6 +155,9 @@ export async function runCodex(request: Request, options: CodexOptions = {}): Pr
   const profile = seatbeltProfile(temp, executable, projectRoot);
   const invoke = (args: string[], input?: string, timeoutMs = options.timeoutMs ?? 120000, onLine?: RunOptions['onLine']) => runProcess('/usr/bin/sandbox-exec', ['-p', profile, executable, ...args], {cwd, env, input, timeoutMs, signal: options.signal, onLine, failureDetail: stderr => providerDiagnostic(stderr) ?? 'No recognized diagnostic. Run margin doctor to check the protected connection.'});
   try {
+    const certificates = installPublicCertificates(temp);
+    env.CODEX_CA_CERTIFICATE = certificates.file;
+    options.onProgress?.(`TLS trust: ${certificates.count} public CA certificates bundled with Node, copied into the isolated runtime; certificate verification remains enabled.`);
     options.onProgress?.('Checking the protected Codex runtime (startup probes have 5-second limits).');
     // Probe the outer boundary without invoking a model or reading credentials.
     await runProcess('/usr/bin/sandbox-exec', ['-p', profile, '/usr/bin/true'], {cwd, env, timeoutMs: 5000, signal: options.signal});

@@ -26,9 +26,13 @@ test('connection probes use fixed unauthenticated HEAD requests and report only 
       };
       return request;
     }};
-    vm.runInNewContext(connectionProbeScript,{require:name=>{assert.equal(name,'node:https');return https;},process:{argv:['node','chatgpt.com'],stdout:{write:s=>output+=s}},setTimeout:cb=>{deadline=cb;return 1;},clearTimeout:()=>{}});
+    vm.runInNewContext(connectionProbeScript,{require:name=>{
+      if(name==='node:https')return https;
+      assert.equal(name,'node:fs');return {readFileSync:(file,encoding)=>{assert.equal(file,'/temp/public-ca.pem');assert.equal(encoding,'utf8');return 'PUBLIC CERTIFICATES';}};
+    },process:{argv:['node','chatgpt.com'],env:{CODEX_CA_CERTIFICATE:'/temp/public-ca.pem'},stdout:{write:s=>output+=s}},setTimeout:cb=>{deadline=cb;return 1;},clearTimeout:()=>{}});
     assert.equal(options.hostname,'chatgpt.com');assert.equal(options.method,'HEAD');assert.equal(options.path,'/');
     assert.equal(options.rejectUnauthorized,true);assert.equal(options.agent,false);
+    assert.equal(options.ca,'PUBLIC CERTIFICATES');
     assert.equal(options.headers,undefined);assert.equal(options.auth,undefined);
     const result=parseConnectionResult(output);
     assert.equal(result.phase,mode==='success'?'http':mode==='dns'?'dns':'tls');
@@ -52,6 +56,8 @@ test('doctor compares the same cleared environment with and without Seatbelt, cl
     assert.notEqual(options.cwd,root);assert.ok(options.timeoutMs<=10000);assert.ok(options.outputBytes<=16384);
     assert.equal(options.env.OPENAI_API_KEY,undefined);assert.equal(options.env.NODE_OPTIONS,undefined);assert.equal(options.env.HTTPS_PROXY,undefined);
     assert.deepEqual(fs.readdirSync(options.env.CODEX_HOME),[]); // No authentication copy.
+    assert.equal(path.dirname(options.env.CODEX_CA_CERTIFICATE),options.env.TMPDIR);
+    assert.match(fs.readFileSync(options.env.CODEX_CA_CERTIFICATE,'utf8'),/^-----BEGIN CERTIFICATE-----/);
     if(executable==='/usr/bin/sw_vers') return {stdout:'26.6.2\n',stderr:''};
     if(args.includes('--version')) return {stdout:'codex-cli 0.154.0\n',stderr:''};
     assert.ok(args.includes(connectionProbeScript));assert.ok(['chatgpt.com','api.openai.com'].includes(args.at(-1)));
@@ -62,6 +68,7 @@ test('doctor compares the same cleared environment with and without Seatbelt, cl
     return {stdout:'{"phase":"http","status":401}',stderr:''};
   }});
   assert.equal(report.macos,'26.6.2');assert.equal(report.connections.length,4);
+  assert.equal(report.tls_trust.source,'node-bundled-public-roots');assert.ok(report.tls_trust.certificates>100);
   assert.ok(report.hints.some(h=>h.includes('points toward the outer sandbox')));
   assert.ok(!JSON.stringify(report).includes(root));
   for(const {options} of calls) assert.ok(!fs.existsSync(options.env.TMPDIR));

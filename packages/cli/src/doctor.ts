@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {executableOnPath, nativeExecutable, protectedEnvironment, runProcess, seatbeltProfile, supportedVersion} from './codex';
+import {installPublicCertificates} from './certificates';
 
 export const destinations = ['chatgpt.com', 'api.openai.com'] as const;
 const errorCodes = ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH', 'EPERM', 'EACCES', 'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'ERR_TLS_CERT_ALTNAME_INVALID', 'UNKNOWN'] as const;
@@ -12,6 +13,7 @@ export interface DoctorOptions {signal?: AbortSignal; onProgress?: (message: str
 // The subprocess gets the SAME cleared environment and outer Seatbelt policy as Codex.
 export const connectionProbeScript = String.raw`
 const https = require('node:https');
+const fs = require('node:fs');
 const host = process.argv[1];
 if (!['chatgpt.com', 'api.openai.com'].includes(host)) process.exit(2);
 let phase = 'dns', finished = false, request;
@@ -21,7 +23,7 @@ function finish(result) {
   finished = true; clearTimeout(timer);
   process.stdout.write(JSON.stringify(result) + '\n');
 }
-request = https.request({hostname:host, port:443, method:'HEAD', path:'/', agent:false, rejectUnauthorized:true}, response => {
+request = https.request({hostname:host, port:443, method:'HEAD', path:'/', agent:false, rejectUnauthorized:true, ca:fs.readFileSync(process.env.CODEX_CA_CERTIFICATE, 'utf8')}, response => {
   finish({phase:'http', status:response.statusCode}); response.destroy(); request.destroy();
 });
 request.on('socket', socket => {
@@ -58,6 +60,8 @@ export async function doctor(projectRoot: string, options: DoctorOptions = {}) {
     if (!path.relative(root, temp).startsWith('..' + path.sep)) throw new Error('Cannot create a diagnostic directory outside this project root');
     const env = protectedEnvironment(temp), cwd = path.join(temp, 'work');
     fs.mkdirSync(env.CODEX_HOME!, {recursive: true, mode: 0o700}); fs.mkdirSync(cwd, {mode: 0o700});
+    const certificates = installPublicCertificates(temp);
+    env.CODEX_CA_CERTIFICATE = certificates.file;
     const node = fs.realpathSync(process.execPath);
     let executable = node, found = true;
     try { executable = nativeExecutable(executableOnPath('codex')); } catch { found = false; }
@@ -85,13 +89,13 @@ export async function doctor(projectRoot: string, options: DoctorOptions = {}) {
       options.onProgress?.(`${mode} ${host}: ${result.status !== undefined ? `HTTPS reached (HTTP ${result.status})` : `${result.phase} failed: ${result.code}`}`);
       return {mode, host, ...result};
     };
-    options.onProgress?.('Checking macOS, Codex version, and Node DNS/TLS/HTTPS. No credentials, draft text, or model requests are used.');
+    options.onProgress?.(`Checking macOS, Codex version, and Node DNS/TLS/HTTPS with ${certificates.count} bundled public CA certificates. No credentials, draft text, or model requests are used.`);
     const [macos, codex, connections] = await Promise.all([macOS(), version(), Promise.all(destinations.flatMap(host => [connection(host, false), connection(host, true)]))]);
     options.signal?.throwIfAborted();
     const ignored_environment = ignoredEnvironment(process.env);
     const hints = ['HTTP responses, including 401/403/404, establish HTTPS reachability only. They do not verify login, model access, WebSockets, or Codex\'s Rust TLS implementation.', 'Both connection modes use Margin\'s cleared environment; the control omits only Seatbelt.'];
     if (connections.some(c => c.mode === 'protected' && c.status === undefined && connections.some(other => other.mode === 'control' && other.host === c.host && other.status !== undefined))) hints.push('Node HTTPS works in the control but fails inside Seatbelt. This points toward the outer sandbox or an OS interaction for Node; it does not establish why Codex failed.');
     if (ignored_environment.length) hints.push('The listed environment overrides are present but intentionally not inherited. No values were read into the report. A normal Codex session may use them.');
-    return {macos, kernel: os.release(), arch: process.arch, node: process.version, codex, supported_codex: supportedVersion, ignored_environment, connections, hints};
+    return {macos, kernel: os.release(), arch: process.arch, node: process.version, codex, supported_codex: supportedVersion, tls_trust: {source: 'node-bundled-public-roots', certificates: certificates.count}, ignored_environment, connections, hints};
   } finally { fs.rmSync(temp, {recursive: true, force: true}); }
 }
