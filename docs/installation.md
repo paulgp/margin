@@ -1,6 +1,6 @@
 # Installation and updates
 
-Margin 0.2.0 provides one setup command from a trusted checkout:
+Margin 0.3.0 provides one setup command from a trusted checkout:
 
 ```sh
 npm run setup
@@ -37,17 +37,17 @@ CLI and VS Code installation are separate operations, not a shared transaction. 
 
 `npm run package` produces:
 
-- `dist/margin-cli-0.2.0.tgz`: bundled CLI, package metadata, README, and license; no workspace links, runtime dependencies, or install scripts.
-- `dist/margin-0.2.0.vsix`: the bundled VS Code extension.
-- `dist/margin-0.2.0.json`: version and SHA-256 checksums for both artifacts.
+- `dist/margin-cli-0.3.0.tgz`: bundled CLI, package metadata, README, and license; no workspace links, runtime dependencies, or install scripts.
+- `dist/margin-0.3.0.vsix`: the bundled VS Code extension.
+- `dist/margin-0.3.0.json`: version and SHA-256 checksums for both artifacts.
 
 The filenames are generated from package versions, not hard-coded in the packaging script. It rejects mismatched workspace versions and a stale CLI bundle. The completion manifest is written after both packages. Checksums catch incomplete/corrupted copies, not malicious modification of both a package and its manifest; use artifacts from your trusted checkout. No review sidecars, examples, authentication files, or dependency trees are included in either package.
 
 With those artifacts copied from a trusted machine, manual installation is also possible:
 
 ```sh
-npm install --global ./margin-cli-0.2.0.tgz --offline --ignore-scripts --no-audit --no-fund
-code --install-extension ./margin-0.2.0.vsix --force
+npm install --global ./margin-cli-0.3.0.tgz --offline --ignore-scripts --no-audit --no-fund
+code --install-extension ./margin-0.3.0.vsix --force
 margin --version
 ```
 

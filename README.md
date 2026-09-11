@@ -12,7 +12,7 @@ With Node 22 or 24 LTS, npm, and desktop VS Code installed, run this from your M
 npm run setup
 ```
 
-Setup installs the pinned build dependencies, builds matching **0.2.0** CLI/extension packages, checks their SHA-256 hashes, and installs both. It detects VS Code on PATH or in the usual macOS Applications locations. The CLI is installed into your existing npm global prefix as a standalone package, so it keeps working if you move the checkout. No `npm link` or F5 session is needed. Nothing is published, no model is called, and setup does not open an editor window.
+Setup installs the pinned build dependencies, builds matching **0.3.0** CLI/extension packages, checks their SHA-256 hashes, and installs both. It detects VS Code on PATH or in the usual macOS Applications locations. The CLI is installed into your existing npm global prefix as a standalone package, so it keeps working if you move the checkout. No `npm link` or F5 session is needed. Nothing is published, no model is called, and setup does not open an editor window.
 
 In your existing VS Code window, run **Developer: Reload Window** once after installation. Open your writing project's folder normally, save your draft deliberately, and run in that folder's terminal:
 
@@ -66,6 +66,21 @@ In the demo window:
 5. To reattach, select a nonempty passage in an eligible source file, then invoke **Reattach to Selection** from the tree or command palette. The original evidence is preserved.
 
 The status bar and threads label unsaved buffers. Margin reviews **saved disk contents**; the CLI cannot detect every editor's unsaved changes and never saves them. Replies stay local. Attachment status does not tell you whether an editorial concern still applies.
+
+## Work through a review
+
+Use **Margin: Next Open Comment** or **Margin: Previous Open Comment** from the Command Palette or the arrow buttons in the Margin tree. Navigation follows the original review order, skips resolved/dismissed discussions, and wraps at either end. It selects the tree item, opens its passage, and expands its thread. Changed passages retain their warning; detached comments open the read-only original. If a resolved/dismissed filter hides open comments, navigation switches the filter to **open**.
+
+| Action | macOS shortcut | Windows/Linux shortcut |
+| --- | --- | --- |
+| Next open comment | `Cmd+K`, then `Alt+Down` | `Ctrl+K`, then `Alt+Down` |
+| Previous open comment | `Cmd+K`, then `Alt+Up` | `Ctrl+K`, then `Alt+Up` |
+
+On macOS, Alt is Option. These are two-step shortcuts; release the first combination before pressing the second. Customize them in VS Code's Keyboard Shortcuts by searching for Margin.
+
+**Margin: Resolve and Next** and **Margin: Dismiss and Next** are available in thread/tree menus and the Command Palette. From a menu they act on that comment; from the palette they act on the last comment opened through Margin (marked **current** in the tree), or ask you to choose if none is current. They save the decision, close the thread, and move to the next open comment. A conflicting state write stops the action without advancing. Ordinary Resolve/Dismiss still close the thread without moving you.
+
+The status bar and tree heading show **N of T open**, including changed and detached comments, regardless of the tree filter. Click the status bar to visit the next open comment. Zero open comments means the session has no open discussions; it does not claim every issue was fixed. The navigation position is temporary and resets when you select a session or reload VS Code; saved decisions and replies remain.
 
 ## Review your own source
 
@@ -141,7 +156,7 @@ npm run test:install
 npm run package
 ```
 
-Packaging creates `dist/margin-0.2.0.vsix`, `dist/margin-cli-0.2.0.tgz`, and `dist/margin-0.2.0.json` containing their checksums. Filenames and package versions are derived from the workspace manifests and must agree. Both packages are self-contained: the CLI archive has no runtime npm dependencies or installation scripts, and the VSIX needs no development checkout. Nothing is published. To install already built artifacts without fetching dependencies or rebuilding, run `npm run setup -- --from-dist`. The checksum manifest detects corruption; it is not a signature or proof of who produced an artifact. See [installation and release details](docs/installation.md) for manual installation and uninstalling.
+Packaging creates `dist/margin-0.3.0.vsix`, `dist/margin-cli-0.3.0.tgz`, and `dist/margin-0.3.0.json` containing their checksums. Filenames and package versions are derived from the workspace manifests and must agree. Both packages are self-contained: the CLI archive has no runtime npm dependencies or installation scripts, and the VSIX needs no development checkout. Nothing is published. To install already built artifacts without fetching dependencies or rebuilding, run `npm run setup -- --from-dist`. The checksum manifest detects corruption; it is not a signature or proof of who produced an artifact. See [installation and release details](docs/installation.md) for manual installation and uninstalling.
 
 The default test suite is offline and uses a fake Codex executable. On macOS the provider tests also exercise actual Seatbelt read/write denials. `test:install` builds/packages and installs the actual CLI and VSIX into temporary npm/VS Code directories, runs a mock review, and checks repeat installation without modifying your normal extension installation. It may download the pinned build dependencies; it makes no model requests. The separate Development Host smoke test opens an isolated disposable workspace; it uses the installed macOS VS Code when found, otherwise the VS Code test runner may download one. Set `MARGIN_VSCODE_EXECUTABLE` to use an existing installation elsewhere.
 

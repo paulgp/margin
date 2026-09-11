@@ -5,6 +5,7 @@ import {
   listSessions, loadSession, loadState, saveState, snapshotText, config, sourcePath, safePath,
   readBytes, decode, attach, mapEdits, offsetPosition, manualOverride, id, gitContext,
 } from '@margin/core';
+import {nextOpenComment, reviewProgress} from './navigation';
 
 function plain(text: string): vscode.MarkdownString {
   const md = new vscode.MarkdownString(); md.isTrusted = false; md.supportHtml = false; md.supportThemeIcons = false;
@@ -38,6 +39,10 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
   private known = new Set<string>();
   private warning = '';
   private gitLabel = '';
+  private current?: string;
+  private navigation: Promise<unknown> = Promise.resolve();
+  private readonly locationGeneration = new Generation();
+  private reviewEpoch = 0;
   private readonly tree: vscode.TreeView<Item>;
   constructor(private readonly context: vscode.ExtensionContext, private readonly root: string) {
     this.tree = vscode.window.createTreeView('margin.reviews', {treeDataProvider: this});
@@ -57,9 +62,13 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
     // Git may use an external worktree gitdir; polling only HEAD/branch is portable and read-only.
     const poll = setInterval(() => { if (this.selected) { const git = gitContext(this.root); if (`${git.branch ?? 'no branch'} @ ${git.head ?? 'no HEAD'}` !== this.gitLabel) this.schedule(); } }, 5000);
     this.disposables.push({dispose: () => clearInterval(poll)});
-    this.command('selectReview', () => this.selectReview()); this.command('refresh', () => this.refresh());
-    this.command('filter', async () => { const choice = await vscode.window.showQuickPick(['all', 'open', 'resolved', 'dismissed'], {title: 'Margin discussion filter'}); if (choice) { this.filter = choice as typeof this.filter; this.render(); } });
-    this.command('letter', () => this.letter()); this.command('open', a => this.open(a));
+    this.command('selectReview', a => this.selectReview(a)); this.command('refresh', () => this.refresh());
+    this.command('filter', async a => { const choice = typeof a === 'string' ? a : await vscode.window.showQuickPick(['all', 'open', 'resolved', 'dismissed'], {title: 'Margin discussion filter'}); if (choice && ['all', 'open', 'resolved', 'dismissed'].includes(choice)) { this.filter = choice as typeof this.filter; this.render(); } });
+    this.command('letter', () => this.letter()); this.navigationCommand('open', a => this.open(a));
+    this.navigationCommand('nextOpen', () => this.navigate(1));
+    this.navigationCommand('previousOpen', () => this.navigate(-1));
+    this.navigationCommand('resolveAndNext', a => this.setStatusAndNext(a, 'resolved'));
+    this.navigationCommand('dismissAndNext', a => this.setStatusAndNext(a, 'dismissed'));
     this.command('original', a => this.original(a)); this.command('compare', a => this.compare(a));
     this.command('reattach', a => this.reattach(a)); this.command('reply', a => this.reply(a));
     for (const status of ['resolved', 'dismissed', 'open'] as const) this.command(status === 'open' ? 'reopen' : status === 'resolved' ? 'resolve' : 'dismiss', a => this.setStatus(a, status));
@@ -69,6 +78,15 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
       try { if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before using Margin'); await action(arg); }
       catch (e) { void vscode.window.showErrorMessage(`Margin: ${(e as Error).message}`); }
     }));
+  }
+  private navigationCommand(name: string, action: (arg?: any) => Promise<void>): void {
+    this.command(name, arg => {
+      const epoch = this.reviewEpoch;
+      const pending = this.navigation.then(async () => { if (this.reviewEpoch === epoch) await action(arg); });
+      // Rapid key presses execute in order; a failed write cannot poison later navigation.
+      this.navigation = pending.catch(() => {});
+      return pending;
+    });
   }
   async start(): Promise<void> {
     this.known = new Set(listSessions(this.root));
@@ -86,10 +104,14 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
     this.generation.next(); if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => { void this.refresh().catch(e => vscode.window.showErrorMessage(`Margin: ${e.message}`)); }, 180);
   }
-  private async selectReview(): Promise<void> {
+  private async selectReview(arg?: Item): Promise<void> {
     const sessions = listSessions(this.root).map(id => loadSession(this.root, id)).sort((a, b) => b.created_at.localeCompare(a.created_at));
-    const choice = await vscode.window.showQuickPick(sessions.map(s => ({label: `${s.created_at} · ${s.provenance.provider}`, description: s.id, detail: s.brief, session: s})), {title: 'Select Margin review session'});
+    const choices = sessions.map(s => ({label: `${s.created_at} · ${s.provenance.provider}`, description: s.id, detail: s.brief, session: s}));
+    const choice = arg?.id ? choices.find(s => s.session.id === arg.id) : await vscode.window.showQuickPick(choices, {title: 'Select Margin review session'});
+    if (arg?.id && !choice) throw new Error('Review session not found');
     if (!choice) return;
+    this.reviewEpoch++; this.locationGeneration.next(); this.current = undefined;
+    for (const thread of this.threads.values()) thread.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
     this.generation.next(); this.selected = choice.session;
     await this.context.workspaceState.update('margin.selected', choice.session.id); await this.refresh();
   }
@@ -97,7 +119,7 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
     const gen = this.generation.next();
     const sessions = listSessions(this.root); const fresh = sessions.filter(id => !this.known.has(id)); this.known = new Set(sessions);
     if (fresh.length) void vscode.window.showInformationMessage(`${fresh.length} new Margin review(s) available.`, 'Select Review').then(choice => { if (choice) void this.selectReview(); });
-    if (!this.selected) { this.status.text = 'Margin: Select Review'; this.tree.message = 'Generate a review with margin review, then select it here.'; return; }
+    if (!this.selected) { this.decorate(); this.tree.message = 'Generate a review with margin review, then select it here.'; return; }
     const session = loadSession(this.root, this.selected.id), stored = loadState(this.root, session);
     const cfg = config(this.root);
     const allowed = new Set([...session.eligible_files, ...cfg.files]);
@@ -166,13 +188,19 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
       this.threads.set(c.id, t); this.threadIds.set(t, c.id);
     }
     this.tree.message = `${this.selected.provenance.provider} · ${this.filter} · Decisions belong to this session\nCurrent: ${this.gitLabel}${this.warning ? '\n' + this.warning : ''}`;
+    const progress = reviewProgress(this.selected, this.state);
+    this.tree.description = `${progress.open} of ${progress.total} open`;
     this.changes.fire(); this.decorate();
   }
   private visible(id: string): boolean { return this.filter === 'all' || this.state?.comments[id].status === this.filter; }
   private decorate(): void {
     const active = vscode.window.activeTextEditor;
-    this.status.text = `Margin${this.selected ? ': ' + this.selected.comments.length + ' comments' : ': Select Review'}${active?.document.isDirty && this.allowed.has(this.relative(active.document.uri)) ? ' · UNSAVED BUFFER ≠ saved snapshot' : ''}`;
-    this.status.tooltip = 'Margin reviews saved disk snapshots. Discussion decisions apply only to the selected review session.';
+    const progress = this.selected && this.state ? reviewProgress(this.selected, this.state) : undefined;
+    const current = this.selected?.comments.find(c => c.id === this.current);
+    this.status.text = `Margin: ${progress ? `${progress.open} of ${progress.total} open` : 'Select Review'}${active?.document.isDirty && this.allowed.has(this.relative(active.document.uri)) ? ' · UNSAVED BUFFER ≠ saved snapshot' : ''}`;
+    this.status.tooltip = `${progress ? 'Click for the next open comment. ' : ''}Margin reviews saved disk snapshots. Discussion decisions apply only to the selected review session.${current ? `\nCurrent comment: ${current.category}: ${current.body.slice(0, 120)}` : ''}`;
+    this.status.command = progress ? 'margin.nextOpen' : 'margin.selectReview';
+    void vscode.commands.executeCommand('setContext', 'margin.hasReview', !!progress);
     for (const editor of vscode.window.visibleTextEditors) {
       const file = this.relative(editor.document.uri); const attached: vscode.Range[] = [], changed: vscode.Range[] = [];
       if (editor.document.uri.scheme === 'file') for (const [id, a] of this.attachments) {
@@ -182,21 +210,23 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
     }
   }
   getChildren(): Item[] { return this.selected?.comments.filter(c => this.visible(c.id)).map(c => ({id: c.id})) ?? []; }
+  getParent(): undefined { return undefined; }
   getTreeItem(item: Item): vscode.TreeItem {
     const c = this.selected!.comments.find(c => c.id === item.id)!, a = this.attachments.get(c.id)!;
     const result = new vscode.TreeItem(`${c.category}: ${c.body.replace(/\s+/g, ' ').slice(0, 85)}`);
-    result.id = c.id; result.contextValue = 'marginComment'; result.description = `${this.state!.comments[c.id].status} · ${a.status}${a.unsaved ? ' · unsaved' : ''}`;
+    result.id = c.id; result.contextValue = 'marginComment'; result.description = `${this.state!.comments[c.id].status} · ${a.status}${a.unsaved ? ' · unsaved' : ''}${this.current === c.id ? ' · current' : ''}`;
     result.tooltip = `${c.body}\n\n${a.reason}\nOriginal: ${c.anchor.path}`;
     result.iconPath = new vscode.ThemeIcon(a.status === 'attached' ? 'comment-discussion' : a.status === 'changed' ? 'warning' : 'debug-disconnect');
     result.command = {command: 'margin.open', title: 'Open Comment', arguments: [item]}; return result;
   }
   private async comment(arg?: any): Promise<ReviewComment | undefined> {
+    const session = this.selected;
     const candidate = arg?.thread ?? arg; let target = candidate?.id as string | undefined;
     if (candidate && typeof candidate === 'object') target ??= this.threadIds.get(candidate);
     if (!target && this.selected) {
       const picked = await vscode.window.showQuickPick(this.selected.comments.map(c => ({label: `${c.category}: ${c.body.slice(0, 90)}`, id: c.id})), {title: 'Choose Margin comment'}); target = picked?.id;
     }
-    return this.selected?.comments.find(c => c.id === target);
+    return this.selected?.id === session?.id ? this.selected?.comments.find(c => c.id === target) : undefined;
   }
   private uri(kind: 'snapshot' | 'letter', c?: ReviewComment): vscode.Uri {
     return vscode.Uri.from({scheme: 'margin', path: `/${kind}/${c?.anchor.path ?? 'editorial-letter.txt'}`, query: new URLSearchParams({review: this.selected!.id, file: c?.anchor.path ?? ''}).toString()});
@@ -212,13 +242,38 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
     const doc = await vscode.workspace.openTextDocument(this.uri('snapshot', c));
     await vscode.window.showTextDocument(doc, {selection: range(doc.getText(), c.anchor.start, c.anchor.end), preview: true});
   }
-  private async open(arg?: any): Promise<void> {
-    const c = await this.comment(arg); if (!c) return; const a = this.attachments.get(c.id);
-    if (!a?.path || a.start === undefined || a.end === undefined) { await this.original({id: c.id}); return; }
-    safePath(this.root, a.path, true);
-    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(this.root, a.path)));
-    await vscode.window.showTextDocument(doc, {selection: range(doc.getText(), a.start, a.end)});
+  private async open(arg?: any, retry = true): Promise<void> {
+    const c = await this.comment(arg); if (!c || !this.selected) return;
+    const session = this.selected.id, gen = this.locationGeneration.next();
+    const valid = () => this.selected?.id === session && this.locationGeneration.isCurrent(gen);
+    const a = this.attachments.get(c.id);
+    const detached = !a?.path || a.start === undefined || a.end === undefined || a.status === 'unanchored';
+    if (!detached) safePath(this.root, a.path!, true);
+    const doc = await vscode.workspace.openTextDocument(detached ? this.uri('snapshot', c) : vscode.Uri.file(path.join(this.root, a!.path!)));
+    if (!valid()) return;
+    // Opening a document can trigger a refresh. Read the latest buffer attachment before revealing it.
+    const latest = this.attachments.get(c.id);
+    if (!detached && (!latest?.path || latest.path !== a!.path || latest.start === undefined || latest.end === undefined || latest.status === 'unanchored')) {
+      if (!retry) throw new Error('The passage changed while opening. Refresh and try again.');
+      await this.open({id: c.id}, false); return;
+    }
+    const selection = detached ? range(doc.getText(), c.anchor.start, c.anchor.end) : range(doc.getText(), latest!.start!, latest!.end!);
+    await vscode.window.showTextDocument(doc, {selection, preview: true});
+    if (!valid()) return;
+    if (!this.visible(c.id)) { this.filter = 'all'; this.render(); }
+    const previous = this.current && this.threads.get(this.current);
+    if (previous && this.current !== c.id) previous.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
+    this.current = c.id;
     const thread = this.threads.get(c.id); if (thread) thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+    this.changes.fire(); this.decorate();
+    await this.tree.reveal({id: c.id}, {select: true, focus: false});
+  }
+  private async navigate(direction: 1 | -1): Promise<void> {
+    if (!this.selected || !this.state) throw new Error('Select a review first');
+    const target = nextOpenComment(this.selected, this.state, this.current, direction);
+    if (!target) { void vscode.window.showInformationMessage('No open comments remain in this review. Resolved and dismissed comments are still available in the review tree.'); return; }
+    if (this.filter !== 'all' && this.filter !== 'open') { this.filter = 'open'; this.render(); }
+    await this.open({id: target});
   }
   private async compare(arg?: any): Promise<void> {
     const c = await this.comment(arg); if (!c) return; const a = this.attachments.get(c.id);
@@ -230,7 +285,9 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
   }
   private persist(next: ReviewState): void {
     if (!this.selected) return;
-    const saved = saveState(this.root, this.selected, next, this.token); this.state = saved.state; this.token = saved.token; this.render();
+    const saved = saveState(this.root, this.selected, next, this.token);
+    this.generation.next(); // A refresh that read older state must not overwrite this successful decision.
+    this.state = saved.state; this.token = saved.token; this.render();
   }
   private async setStatus(arg: any, status: Discussion): Promise<void> {
     const c = await this.comment(arg); if (!c || !this.state) return;
@@ -239,6 +296,16 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
     // persist() recreates the threads, so collapse the current instance afterward.
     const thread = this.threads.get(c.id);
     if (thread && status !== 'open') thread.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
+  }
+  private async setStatusAndNext(arg: any, status: 'resolved' | 'dismissed'): Promise<void> {
+    const c = await this.comment(arg ?? (this.current ? {id: this.current} : undefined));
+    if (!c || !this.state) return;
+    if (this.state.comments[c.id].status !== 'open') throw new Error('Choose an open comment to resolve or dismiss and advance');
+    const session = this.selected!.id;
+    await this.setStatus({id: c.id}, status);
+    if (this.selected?.id !== session) return;
+    this.current = c.id; this.changes.fire(); this.decorate();
+    await this.navigate(1);
   }
   private async reply(arg?: any): Promise<void> {
     const c = await this.comment(arg); if (!c || !this.state) return;
@@ -257,8 +324,8 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
     const next = structuredClone(this.state); next.comments[c.id].override = override; this.persist(next); await this.refresh();
   }
   /** Read-only diagnostics for the Extension Development Host smoke test. */
-  inspect() { return {session: this.selected?.id, threads: this.threads.size, threadStates: Object.fromEntries([...this.threads].map(([id, thread]) => [id, thread.collapsibleState])), items: this.getChildren().length, attachments: [...this.attachments.values()]}; }
-  dispose(): void { this.generation.next(); if (this.timer) clearTimeout(this.timer); for (const t of this.threads.values()) t.dispose(); for (const d of this.disposables) d.dispose(); }
+  inspect() { return {session: this.selected?.id, threads: this.threads.size, threadStates: Object.fromEntries([...this.threads].map(([id, thread]) => [id, thread.collapsibleState])), items: this.getChildren().length, attachments: [...this.attachments.values()], current: this.current, filter: this.filter, progress: this.selected && this.state ? reviewProgress(this.selected, this.state) : undefined, statusText: this.status.text, treeDescription: this.tree.description}; }
+  dispose(): void { this.reviewEpoch++; this.generation.next(); this.locationGeneration.next(); if (this.timer) clearTimeout(this.timer); for (const t of this.threads.values()) t.dispose(); for (const d of this.disposables) d.dispose(); void vscode.commands.executeCommand('setContext', 'margin.hasReview', false); }
 }
 export async function activate(context: vscode.ExtensionContext) {
   if (!vscode.workspace.isTrusted) return;

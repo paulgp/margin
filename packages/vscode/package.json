@@ -1,30 +1,249 @@
 {
-  "name":"margin","displayName":"Margin","description":"Source-first, comment-only writing review for Markdown, Typst, and LaTeX.","version":"0.2.0","publisher":"margin-local","private":true,
-  "repository":{"type":"git","url":"https://github.com/paulgp/margin.git"},
-  "license":"MIT","engines":{"vscode":"^1.100.0"},"categories":["Other"],"main":"./dist/extension.js",
-  "activationEvents":["workspaceContains:.reviews/config.json"],
-  "capabilities":{"untrustedWorkspaces":{"supported":false,"description":"Margin reads selected local source snapshots and writes local discussion sidecars."},"virtualWorkspaces":false},
-  "contributes":{
-    "commands":[
-      {"command":"margin.selectReview","title":"Margin: Select Review"},
-      {"command":"margin.refresh","title":"Margin: Refresh","icon":"$(refresh)"},
-      {"command":"margin.letter","title":"Margin: Show Editorial Letter","icon":"$(mail)"},
-      {"command":"margin.filter","title":"Margin: Filter Discussions","icon":"$(filter)"},
-      {"command":"margin.open","title":"Margin: Open Comment"},
-      {"command":"margin.reply","title":"Reply Locally"},
-      {"command":"margin.resolve","title":"Resolve","icon":"$(check)"},
-      {"command":"margin.dismiss","title":"Dismiss"},
-      {"command":"margin.reopen","title":"Reopen"},
-      {"command":"margin.original","title":"Show Original"},
-      {"command":"margin.compare","title":"Compare Reviewed Version with Current","icon":"$(diff)"},
-      {"command":"margin.reattach","title":"Reattach to Selection","icon":"$(link)"}
+  "name": "margin",
+  "displayName": "Margin",
+  "description": "Source-first, comment-only writing review for Markdown, Typst, and LaTeX.",
+  "version": "0.3.0",
+  "publisher": "margin-local",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paulgp/margin.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:.reviews/config.json"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Margin reads selected local source snapshots and writes local discussion sidecars."
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "margin.selectReview",
+        "title": "Margin: Select Review"
+      },
+      {
+        "command": "margin.refresh",
+        "title": "Margin: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "margin.letter",
+        "title": "Margin: Show Editorial Letter",
+        "icon": "$(mail)"
+      },
+      {
+        "command": "margin.filter",
+        "title": "Margin: Filter Discussions",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "margin.open",
+        "title": "Margin: Open Comment"
+      },
+      {
+        "command": "margin.nextOpen",
+        "title": "Margin: Next Open Comment",
+        "icon": "$(arrow-down)",
+        "enablement": "isWorkspaceTrusted && margin.hasReview"
+      },
+      {
+        "command": "margin.previousOpen",
+        "title": "Margin: Previous Open Comment",
+        "icon": "$(arrow-up)",
+        "enablement": "isWorkspaceTrusted && margin.hasReview"
+      },
+      {
+        "command": "margin.resolveAndNext",
+        "title": "Margin: Resolve and Next",
+        "enablement": "isWorkspaceTrusted && margin.hasReview"
+      },
+      {
+        "command": "margin.dismissAndNext",
+        "title": "Margin: Dismiss and Next",
+        "enablement": "isWorkspaceTrusted && margin.hasReview"
+      },
+      {
+        "command": "margin.reply",
+        "title": "Reply Locally"
+      },
+      {
+        "command": "margin.resolve",
+        "title": "Resolve",
+        "icon": "$(check)"
+      },
+      {
+        "command": "margin.dismiss",
+        "title": "Dismiss"
+      },
+      {
+        "command": "margin.reopen",
+        "title": "Reopen"
+      },
+      {
+        "command": "margin.original",
+        "title": "Show Original"
+      },
+      {
+        "command": "margin.compare",
+        "title": "Compare Reviewed Version with Current",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "margin.reattach",
+        "title": "Reattach to Selection",
+        "icon": "$(link)"
+      }
     ],
-    "views":{"explorer":[{"id":"margin.reviews","name":"Margin"}]},
-    "menus":{
-      "view/title":[{"command":"margin.selectReview","when":"view == margin.reviews","group":"navigation"},{"command":"margin.refresh","when":"view == margin.reviews","group":"navigation"},{"command":"margin.letter","when":"view == margin.reviews","group":"navigation"},{"command":"margin.filter","when":"view == margin.reviews","group":"navigation"}],
-      "view/item/context":[{"command":"margin.resolve","when":"view == margin.reviews && viewItem == marginComment"},{"command":"margin.dismiss","when":"view == margin.reviews && viewItem == marginComment"},{"command":"margin.reopen","when":"view == margin.reviews && viewItem == marginComment"},{"command":"margin.reply","when":"view == margin.reviews && viewItem == marginComment"},{"command":"margin.original","when":"view == margin.reviews && viewItem == marginComment"},{"command":"margin.compare","when":"view == margin.reviews && viewItem == marginComment"},{"command":"margin.reattach","when":"view == margin.reviews && viewItem == marginComment"}],
-      "comments/commentThread/context":[{"command":"margin.reply","when":"commentController == margin","group":"inline"}],
-      "comments/commentThread/title":[{"command":"margin.resolve","when":"commentController == margin"},{"command":"margin.dismiss","when":"commentController == margin"},{"command":"margin.reopen","when":"commentController == margin"},{"command":"margin.original","when":"commentController == margin"},{"command":"margin.compare","when":"commentController == margin"},{"command":"margin.reattach","when":"commentController == margin"}]
-    }
+    "views": {
+      "explorer": [
+        {
+          "id": "margin.reviews",
+          "name": "Margin"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "margin.selectReview",
+          "when": "view == margin.reviews",
+          "group": "navigation"
+        },
+        {
+          "command": "margin.refresh",
+          "when": "view == margin.reviews",
+          "group": "navigation"
+        },
+        {
+          "command": "margin.letter",
+          "when": "view == margin.reviews",
+          "group": "navigation"
+        },
+        {
+          "command": "margin.filter",
+          "when": "view == margin.reviews",
+          "group": "navigation"
+        },
+        {
+          "command": "margin.previousOpen",
+          "when": "view == margin.reviews && margin.hasReview",
+          "group": "navigation"
+        },
+        {
+          "command": "margin.nextOpen",
+          "when": "view == margin.reviews && margin.hasReview",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "margin.resolve",
+          "when": "view == margin.reviews && viewItem == marginComment"
+        },
+        {
+          "command": "margin.dismiss",
+          "when": "view == margin.reviews && viewItem == marginComment"
+        },
+        {
+          "command": "margin.reopen",
+          "when": "view == margin.reviews && viewItem == marginComment"
+        },
+        {
+          "command": "margin.reply",
+          "when": "view == margin.reviews && viewItem == marginComment"
+        },
+        {
+          "command": "margin.original",
+          "when": "view == margin.reviews && viewItem == marginComment"
+        },
+        {
+          "command": "margin.compare",
+          "when": "view == margin.reviews && viewItem == marginComment"
+        },
+        {
+          "command": "margin.reattach",
+          "when": "view == margin.reviews && viewItem == marginComment"
+        },
+        {
+          "command": "margin.resolveAndNext",
+          "when": "view == margin.reviews && viewItem == marginComment",
+          "group": "1_navigation"
+        },
+        {
+          "command": "margin.dismissAndNext",
+          "when": "view == margin.reviews && viewItem == marginComment",
+          "group": "1_navigation"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "margin.reply",
+          "when": "commentController == margin",
+          "group": "inline"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "margin.resolve",
+          "when": "commentController == margin"
+        },
+        {
+          "command": "margin.dismiss",
+          "when": "commentController == margin"
+        },
+        {
+          "command": "margin.reopen",
+          "when": "commentController == margin"
+        },
+        {
+          "command": "margin.original",
+          "when": "commentController == margin"
+        },
+        {
+          "command": "margin.compare",
+          "when": "commentController == margin"
+        },
+        {
+          "command": "margin.reattach",
+          "when": "commentController == margin"
+        },
+        {
+          "command": "margin.resolveAndNext",
+          "when": "commentController == margin",
+          "group": "1_navigation"
+        },
+        {
+          "command": "margin.dismissAndNext",
+          "when": "commentController == margin",
+          "group": "1_navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "margin.nextOpen",
+        "key": "ctrl+k alt+down",
+        "mac": "cmd+k alt+down",
+        "when": "isWorkspaceTrusted && margin.hasReview"
+      },
+      {
+        "command": "margin.previousOpen",
+        "key": "ctrl+k alt+up",
+        "mac": "cmd+k alt+up",
+        "when": "isWorkspaceTrusted && margin.hasReview"
+      }
+    ]
   }
 }

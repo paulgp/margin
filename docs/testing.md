@@ -1,5 +1,9 @@
 # Verification and manual checks
 
+Margin **0.3.0** navigation verification: all **60** offline tests passed, and the actual VS Code 1.136.1 Development Host smoke passed on the macOS desktop. New coverage includes forward/backward wrap and skipping closed comments, rapid queued commands, navigation across Markdown/Typst/LaTeX files, unsaved range shifts, changed and detached targets, filtered tree visibility, open counts, Resolve/Dismiss and Next, a concurrent writer blocking advancement, session changes, and empty reviews. The smoke confirms disk draft bytes and immutable session records stay unchanged. The navigation cursor resets on session selection while persisted decisions/replies survive reload through the storage path. Keyboard commands were invoked through the VS Code API; physical shortcut dispatch and visual menu layout still need a manual check. No live model call was made.
+
+The **0.3.0** installation smoke also passed: `npm ci` accepted the synchronized lockfile, both packages built, the real CLI/VSIX installed into temporary directories, a mock review succeeded through the installed CLI, and repeat installation preserved draft/review bytes. Packaged artifacts are `dist/margin-0.3.0.vsix`, `dist/margin-cli-0.3.0.tgz`, and their checksum manifest.
+
 Project-folder follow-up: build and all **57** offline tests passed. A CLI regression test reproduces the rejected `.demo/markdown/draft.md` invocation, checks the `--root` guidance, and runs mock reviews with `--root .demo/markdown`. It verifies that sessions are stored only in the selected demo project, the reported VS Code folder agrees, and draft bytes, Git HEAD, and index remain unchanged. No live model or new editor UI check was performed for this CLI/documentation change.
 
 Run `npm ci`, then:
@@ -48,6 +52,7 @@ The resolve/dismiss follow-up smoke also passed in the actual Development Host: 
 The smoke checks API behavior, not visual presentation. Still inspect these manually with F5:
 
 - Dark/light/high-contrast decoration appearance and comment menu placement.
+- Physical Next/Previous shortcuts (`Cmd+K`, then `Option+Down/Up` on macOS), custom keybinding conflicts, and arrow-button/status-bar placement.
 - Opening reply input, keyboard accessibility, long quotations, and tree filter usability.
 - Reattach through the actual selection/menu interaction, then reload the window with both saved and unsaved selections.
 - External rename plus manifest update; branch switch labels; deleted targets' original views.
