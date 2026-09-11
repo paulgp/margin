@@ -10,7 +10,7 @@ import {Provider, ProviderResult, ProviderOptions} from './providers';
 export const supportedVersion = '0.154.0';
 // 0.154.0 forces the unified_exec backend on. Disable tool exposure (shell_tool),
 // and rely on the outer OS process boundary; do not claim that backend is disabled.
-export const disabledFeatures = ['apps', 'plugins', 'remote_plugin', 'hooks', 'shell_tool', 'shell_snapshot', 'multi_agent', 'multi_agent_v2', 'code_mode', 'code_mode_host', 'browser_use', 'browser_use_external', 'computer_use', 'in_app_browser', 'image_generation', 'view_image', 'skill_search', 'skill_mcp_dependency_install', 'workspace_dependencies', 'memories', 'goals', 'request_permissions_tool', 'exec_permission_approvals', 'guardian_approval', 'in_app_local_automation', 'tool_suggest'];
+export const disabledFeatures = ['apps', 'plugins', 'remote_plugin', 'hooks', 'shell_tool', 'shell_snapshot', 'multi_agent', 'multi_agent_v2', 'code_mode', 'code_mode_host', 'browser_use', 'browser_use_external', 'computer_use', 'in_app_browser', 'image_generation', 'view_image', 'skill_search', 'skill_mcp_dependency_install', 'workspace_dependencies', 'memories', 'goals', 'request_permissions_tool', 'exec_permission_approvals', 'guardian_approval', 'in_app_local_automation', 'tool_suggest', 'unbounded_connection_retries'];
 export interface RunOptions {cwd: string; env: NodeJS.ProcessEnv; input?: string; timeoutMs?: number; outputBytes?: number; signal?: AbortSignal; onLine?: (line: string, stream: 'stdout' | 'stderr') => void; failureDetail?: (stderr: string) => string}
 
 /** Report fixed diagnostic descriptions, never model prose, secrets, URLs, or terminal escapes. */
@@ -18,10 +18,12 @@ export function providerIssue(text: string): string | undefined {
   // URLs can contain words such as "invalid"/"token" or status-like numbers.
   // Do not let credentials, query parameters, or endpoint names select a diagnosis.
   text = text.replace(/\b(?:https?|wss?):\/\/[^\s"'<>]+/gi, '[URL]');
-  if (/\b407\b|proxy.{0,40}(failed|error|authentication|connect)|tunnel.{0,20}(failed|error)/i.test(text)) return 'Codex reported a proxy connection or proxy authentication failure.';
-  if (/\b429\b|rate.limit|quota.exceeded/i.test(text)) return 'Codex reported a rate limit or exhausted quota (HTTP 429).';
-  if (/\b(500|502|503|504)\b|service unavailable|bad gateway/i.test(text)) return 'Codex reported a server or gateway error (HTTP 5xx).';
-  if (/\b(401|403)\b|unauthenticated|unauthorized|authentication|invalid.{0,20}(token|api.key)|token.{0,20}(expired|refresh)/i.test(text)) return 'Codex reported an authentication or authorization problem.';
+  const status = Number(text.match(/(?:^|\bHTTP(?:\/[\d.]+)?(?: status)?|\bstatus(?: code)?)\s*[:=]?\s*(\d{3})\b/i)?.[1]);
+  if (status === 407 || /proxy.{0,40}(failed|error|authentication|connect)|tunnel.{0,20}(failed|error)/i.test(text)) return 'Codex reported a proxy connection or proxy authentication failure.';
+  if (status === 429 || /rate.limit|quota.exceeded/i.test(text)) return 'Codex reported a rate limit or exhausted quota.';
+  if ([500, 502, 503, 504].includes(status) || /service unavailable|bad gateway/i.test(text)) return 'Codex reported a server or gateway error.';
+  if (status === 401 || status === 403 || /unauthenticated|unauthorized|authentication|invalid.{0,20}(token|api.key)|token.{0,20}(expired|refresh)/i.test(text)) return 'Codex reported an authentication or authorization problem.';
+  if (/model.{0,60}(not found|does not exist|not supported|not available)|unsupported model|model_not_found/i.test(text)) return 'Codex reported that the requested model is unavailable or unsupported.';
   if (/invalid.{0,30}schema|schema.{0,30}(invalid|unsupported)|invalid_request_error/i.test(text)) return 'Codex rejected the request or response schema.';
   if (/operation not permitted|permission denied|sandbox.{0,20}(failed|error)/i.test(text)) return 'Codex reported a permissions error inside the protected runtime.';
   if (/dns|failed to resolve|name or service not known|nodename nor servname|ENOTFOUND|EAI_AGAIN/i.test(text)) return 'Codex reported a DNS resolution failure.';
@@ -29,6 +31,7 @@ export function providerIssue(text: string): string | undefined {
   if (/connection refused|ECONNREFUSED/i.test(text)) return 'Codex reported a refused network connection.';
   if (/connection reset|ECONNRESET|broken pipe|EPIPE/i.test(text)) return 'Codex reported a reset or broken network connection.';
   if (/websocket|web.socket/i.test(text) && /fail|error|disconnect|reconnect|closed|retry/i.test(text)) return 'Codex reported a WebSocket connection failure or retry.';
+  if (/error decoding response body|invalid.{0,15}(response|event)|failed to parse.{0,20}(response|event)/i.test(text)) return 'Codex reported a response or stream decoding failure.';
   if (/timed out|ETIMEDOUT|connect timeout/i.test(text)) return 'Codex reported a network timeout.';
   if (/reconnect|retrying|retry attempt|error sending request|failed to (connect|resolve)|connection.{0,30}(failed|closed|reset)|dns|tls|certificate|stream disconnected|timed out/i.test(text)) return 'Codex reported a connection problem or retry.';
   return undefined;
@@ -36,13 +39,16 @@ export function providerIssue(text: string): string | undefined {
 export function providerDiagnostic(text: string): string | undefined {
   const issue = providerIssue(text);
   if (!issue) return undefined;
+  const retry = text.replace(/\b(?:https?|wss?):\/\/[^\s"'<>]+/gi, '').match(/(?:reconnect(?:ing)?|retry(?:ing)?(?: turn)?|retry attempt)\s*\(?(\d{1,3})\s*\/\s*(\d{1,3})\b/i);
+  const detail = retry ? ` Retry ${Number(retry[1])}/${Number(retry[2])}.` : '';
   if (/models_manager|refresh.{0,30}(available )?models|fetch.{0,30}model.{0,10}(list|catalog)/i.test(text)) return `${issue} Reported while fetching the model catalog; this alone does not establish that the review request failed.`;
-  return issue;
+  return issue + detail;
 }
 export function eventProgress(line: string): {message?: string; issue?: string} {
   let event: any; try { event = JSON.parse(line); } catch { return {}; }
-  if (event?.type === 'thread.started') return {message: 'Codex session started.'};
-  if (event?.type === 'turn.started') return {message: 'Codex started the review turn; awaiting model output.'};
+  if (event?.type === 'thread.started') return {message: 'Codex created a local session; service connection is not yet confirmed.'};
+  if (event?.type === 'turn.started') return {message: 'Codex started the local review turn; awaiting model output.'};
+  if (['item.started', 'item.updated', 'item.completed'].includes(event?.type) && event.item?.type === 'reasoning') return {message: 'Codex emitted reasoning activity; awaiting final comments.'};
   if (event?.type === 'turn.completed') return {message: 'Codex completed the review turn.'};
   if (event?.type === 'item.completed' && event.item?.type === 'agent_message') return {message: 'Codex produced a response; waiting for the final response file.'};
   if (event?.type === 'error' || event?.type === 'turn.failed') {
@@ -131,7 +137,7 @@ export interface CodexOptions extends ProviderOptions {executable?: string; time
 /** The doctor uses exactly the same fresh environment as a review. */
 export function protectedEnvironment(temp: string): NodeJS.ProcessEnv {
   const home = path.join(temp, 'home');
-  return {PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, HOME: home, CODEX_HOME: path.join(home, '.codex'), TMPDIR: temp, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'), OPENSSL_CONF: '/dev/null', LANG: 'en_US.UTF-8', TERM: 'dumb'};
+  return {PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, HOME: home, CODEX_HOME: path.join(home, '.codex'), TMPDIR: temp, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'), OPENSSL_CONF: '/dev/null', LANG: 'en_US.UTF-8', TERM: 'dumb', RUST_LOG: 'warn'};
 }
 export async function runCodex(request: Request, options: CodexOptions = {}): Promise<ProviderResult> {
   if (process.platform !== 'darwin' || !fs.existsSync('/usr/bin/sandbox-exec')) throw new Error('Protected Codex execution currently requires macOS Seatbelt. Use the portable prepare/import workflow on this platform.');
@@ -163,17 +169,21 @@ export async function runCodex(request: Request, options: CodexOptions = {}): Pr
     // Existing file-based login stays usable. Never read or copy config, rules, MCP tokens, plugins, or skills.
     const authHome = options.authHome ?? process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex');
     const auth = path.join(authHome, 'auth.json');
-    if (process.env.OPENAI_API_KEY) fs.writeFileSync(path.join(codexHome, 'auth.json'), JSON.stringify({OPENAI_API_KEY: process.env.OPENAI_API_KEY}), {mode: 0o600, flag: 'wx'});
+    if (process.env.OPENAI_API_KEY) {
+      fs.writeFileSync(path.join(codexHome, 'auth.json'), JSON.stringify({OPENAI_API_KEY: process.env.OPENAI_API_KEY}), {mode: 0o600, flag: 'wx'});
+      options.onProgress?.('Authentication source: OPENAI_API_KEY environment variable (value hidden; validity not yet checked).');
+    }
     else {
       let stat: fs.Stats;
       try { stat = fs.lstatSync(auth); } catch { throw new Error('Codex authentication unavailable: use file-based codex login or OPENAI_API_KEY. Keychain-only and managed integrations are unsupported; prepare/import remains available.'); }
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 65536) throw new Error('Unsupported Codex authentication file');
       fs.writeFileSync(path.join(codexHome, 'auth.json'), fs.readFileSync(auth), {mode: 0o600, flag: 'wx'});
+      options.onProgress?.('Authentication source: saved Codex auth.json (isolated copy; validity not yet checked).');
     }
     const schema = path.join(temp, 'schema.json'), output = path.join(temp, 'response.json');
     fs.writeFileSync(schema, json(responseSchema(request.id, request.max_comments)), {mode: 0o600, flag: 'wx'});
     const args = codexArgs(schema, output, cwd, options.model);
-    options.onProgress?.(`Starting Codex review; ${(options.timeoutMs ?? 120000) / 1000}-second timeout. Press Ctrl+C to cancel.`);
+    options.onProgress?.(`Starting Codex review; ${(options.timeoutMs ?? 120000) / 1000}-second timeout. Unbounded retries disabled. Model: ${options.model ?? 'Codex default (user configuration is not loaded)'}. Press Ctrl+C to cancel.`);
     let lastIssue: string | undefined;
     try {
       await invoke(args, packetText(request), options.timeoutMs ?? 120000, (line, stream) => {

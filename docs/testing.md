@@ -10,6 +10,12 @@ Connection-diagnostic verification on macOS **26.6.2**, arm64, Node **22.22.0**:
 
 The actual `npm run margin -- doctor --json` command was also run on that server. Control HTTPS probes reached both hosts (HTTP 403/421); protected Node probes failed TLS certificate verification (`UNABLE_TO_GET_ISSUER_CERT_LOCALLY`). The earlier successful live Codex review used a different TLS implementation, so this finding cannot establish the cause of a laptop's Codex timeout. The laptop was reported to run macOS **14.1.1**; its protected connection and UI compatibility have not been verified here. No new live model review was run for this diagnostic change.
 
+The user subsequently supplied a laptop doctor report on macOS **14.1.1**, arm64, Node **24.18.0**, Codex **0.154.0**: both control and protected Node probes reached both hosts (HTTP 403/421), and no recognized omitted environment overrides were present. This establishes those Node HTTPS connections, not Codex authentication/streaming or overall macOS compatibility.
+
+Retry-diagnostic verification: all **46** offline tests passed with no skips. The installed runtime was independently probed inside Seatbelt to verify `unbounded_connection_retries=false` takes effect. Fake executable tests assert that control and the fixed warning-level environment; privacy tests cover reasoning activity markers, retry-count reporting, credential-source labels, unavailable models, and numbers that must not be interpreted as HTTP statuses.
+
+A separate real review with the updated retry settings also completed on the server on 2026-09-11 in **18 seconds**, importing four comments from the bundled Markdown example. Draft bytes and Git HEAD/branch context remained unchanged. This is a live model run outside the default test suite; it does not establish that the laptop timeout is fixed.
+
 | Command | Purpose |
 | --- | --- |
 | `npm run build` | TypeScript project build; bundled CLI and extension |

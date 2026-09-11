@@ -25,6 +25,7 @@ let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>input+
   assert.equal(args[args.indexOf('--sandbox')+1],'read-only');assert.ok(args.includes('approval_policy="never"'));
   for(const flag of ${JSON.stringify(disabledFeatures)})assert.ok(args.includes('features.'+flag+'=false'));
   assert.ok(!process.env.MARGIN_TEST_SECRET);assert.ok(!process.env.NODE_OPTIONS);
+  assert.equal(process.env.RUST_LOG,'warn');
   assert.notEqual(process.cwd(),${JSON.stringify(authorRoot)});
   assert.ok(process.env.CODEX_HOME.startsWith(process.env.HOME));
   assert.deepEqual(fs.readdirSync(process.env.CODEX_HOME),['auth.json']);
@@ -56,6 +57,7 @@ test('safe arguments and incompatible runtime controls fail closed', () => {
   assert.throws(()=>verifyRuntime('codex-cli '+supportedVersion,help,''),/feature unavailable/);
   assert.throws(()=>verifyFeatureSettings(features),/discovery/);
   assert.throws(()=>verifyFeatureSettings(features.replace('plugins stable false','plugins stable true')),/control/);
+  assert.throws(()=>verifyFeatureSettings(features.replace('unbounded_connection_retries stable false','unbounded_connection_retries stable true')),/unbounded_connection_retries/);
   assert.throws(()=>codexArgs('a','b','c','$(touch prose)'),/model identifier/);
   assert.match(seatbeltProfile('/private/tmp/margin-test','/bin/test'),/deny file-write/);
 });
@@ -64,7 +66,9 @@ test('progress events expose lifecycle and failure classes without printing pros
   assert.match(eventProgress('{"type":"turn.started"}').message,/awaiting model/);
   assert.match(eventProgress('{"type":"turn.completed"}').message,/completed/);
   assert.deepEqual(eventProgress('not JSON'),{});
-  assert.deepEqual(eventProgress('{"type":"item.completed","item":{"type":"reasoning","text":"SECRET"}}'),{});
+  assert.match(eventProgress('{"type":"thread.started"}').message,/local session; service connection is not yet confirmed/);
+  const reasoning = eventProgress('{"type":"item.completed","item":{"type":"reasoning","text":"SECRET"}}');
+  assert.match(reasoning.message,/reasoning activity/);assert.ok(!JSON.stringify(reasoning).includes('SECRET'));
   assert.ok(!JSON.stringify(eventProgress('{"type":"item.completed","item":{"type":"agent_message","text":"SECRET"}}')).includes('SECRET'));
   assert.equal(eventProgress('{"type":"error","message":"401 token SECRET"}').issue,'Codex reported an authentication or authorization problem.');
   assert.match(providerIssue('error sending request: SECRET'),/connection/);
@@ -84,6 +88,15 @@ test('connection diagnostics distinguish causes and identify model catalog warni
     assert.match(result,expected); assert.ok(!/SECRET|example|\x1b/.test(result));
   }
   assert.match(providerDiagnostic('codex_core::models_manager: failed to refresh available models: error sending request SECRET'), /model catalog; this alone does not establish/);
+});
+
+test('retry attempts survive classification and arbitrary numbers do not become HTTP errors', () => {
+  assert.match(providerDiagnostic('stream error - retrying turn (2/5): error decoding response body SECRET'), /decoding failure\. Retry 2\/5\./);
+  assert.match(providerDiagnostic('Reconnecting 3/5: error sending request SECRET'), /connection problem.*Retry 3\/5/);
+  assert.match(providerDiagnostic('retrying in 500 ms: connection reset'), /reset or broken/);
+  assert.match(providerDiagnostic('error sending request: https://example.invalid/retrying2/5'), /connection problem/);
+  assert.ok(!providerDiagnostic('error sending request: https://example.invalid/retrying2/5').includes('Retry 2/5'));
+  assert.match(providerDiagnostic('HTTP 404: model does not exist'), /model is unavailable/);
 });
 
 test('streaming progress arrives before exit, handles split UTF-8, and flushes unterminated lines', async t => {
@@ -112,6 +125,7 @@ for (const mode of ['success','version','flags','failure','timeout','overflow','
     const progress=[];
     const result=await runCodex(request,{...options,onProgress:message=>progress.push(message)});assert.match(result.response,/Fake executable/);assert.equal(result.provenance.reported_model,null);
     assert.ok(progress.some(m=>m.includes('awaiting model')));assert.ok(progress.some(m=>m.includes('validation')));assert.ok(!progress.join('').includes('PRIVATE MODEL TEXT'));
+    assert.ok(progress.some(m=>m.startsWith('Authentication source:')));assert.ok(progress.some(m=>m.includes('Unbounded retries disabled')));
     assert.equal(core.importResponse(root,request.id,result.response,result.provenance).comments.length,0);
   } else if(mode==='malformed') {
     const result=await runCodex(request,options);assert.throws(()=>core.importResponse(root,request.id,result.response,result.provenance),/No review installed/);
