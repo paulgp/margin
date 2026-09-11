@@ -3,14 +3,37 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
+import {StringDecoder} from 'node:string_decoder';
 import {packetText, responseSchema, json, Request} from '@margin/core';
-import {Provider, ProviderResult} from './providers';
+import {Provider, ProviderResult, ProviderOptions} from './providers';
 
 export const supportedVersion = '0.154.0';
 // 0.154.0 forces the unified_exec backend on. Disable tool exposure (shell_tool),
 // and rely on the outer OS process boundary; do not claim that backend is disabled.
 export const disabledFeatures = ['apps', 'plugins', 'remote_plugin', 'hooks', 'shell_tool', 'shell_snapshot', 'multi_agent', 'multi_agent_v2', 'code_mode', 'code_mode_host', 'browser_use', 'browser_use_external', 'computer_use', 'in_app_browser', 'image_generation', 'view_image', 'skill_search', 'skill_mcp_dependency_install', 'workspace_dependencies', 'memories', 'goals', 'request_permissions_tool', 'exec_permission_approvals', 'guardian_approval', 'in_app_local_automation', 'tool_suggest'];
-export interface RunOptions {cwd: string; env: NodeJS.ProcessEnv; input?: string; timeoutMs?: number; outputBytes?: number; signal?: AbortSignal}
+export interface RunOptions {cwd: string; env: NodeJS.ProcessEnv; input?: string; timeoutMs?: number; outputBytes?: number; signal?: AbortSignal; onLine?: (line: string, stream: 'stdout' | 'stderr') => void}
+
+/** Report fixed diagnostic descriptions, never model prose, secrets, URLs, or terminal escapes. */
+export function providerIssue(text: string): string | undefined {
+  if (/\b(401|403)\b|unauthenticated|unauthorized|authentication|invalid.{0,20}(token|api.key)|token.{0,20}(expired|refresh)/i.test(text)) return 'Codex reported an authentication or authorization problem.';
+  if (/invalid.{0,30}schema|schema.{0,30}(invalid|unsupported)|invalid_request_error/i.test(text)) return 'Codex rejected the request or response schema.';
+  if (/operation not permitted|permission denied|sandbox.{0,20}(failed|error)/i.test(text)) return 'Codex reported a permissions error inside the protected runtime.';
+  if (/reconnect|retrying|retry attempt|error sending request|failed to (connect|resolve)|connection.{0,30}(failed|closed|reset)|dns|tls|certificate|stream disconnected|timed out/i.test(text)) return 'Codex reported a connection problem or retry.';
+  return undefined;
+}
+export function eventProgress(line: string): {message?: string; issue?: string} {
+  let event: any; try { event = JSON.parse(line); } catch { return {}; }
+  if (event?.type === 'thread.started') return {message: 'Codex session started.'};
+  if (event?.type === 'turn.started') return {message: 'Codex started the review turn; awaiting model output.'};
+  if (event?.type === 'turn.completed') return {message: 'Codex completed the review turn.'};
+  if (event?.type === 'item.completed' && event.item?.type === 'agent_message') return {message: 'Codex produced a response; waiting for the final response file.'};
+  if (event?.type === 'error' || event?.type === 'turn.failed') {
+    const raw = typeof event.message === 'string' ? event.message : typeof event.error?.message === 'string' ? event.error.message : '';
+    const issue = providerIssue(raw) ?? 'Codex reported a review error.';
+    return {message: issue, issue};
+  }
+  return {};
+}
 /** No shell. A new process group lets cancellation/timeouts kill descendants too. */
 export function runProcess(executable: string, args: string[], options: RunOptions): Promise<{stdout: string; stderr: string}> {
   return new Promise((resolve, reject) => {
@@ -20,15 +43,30 @@ export function runProcess(executable: string, args: string[], options: RunOptio
     const kill = () => { try { if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL'); } catch { /* Already exited. */ } };
     const stop = (message: string) => { failure ??= new Error(message); kill(); };
     const abort = () => stop('Provider cancelled');
-    const timer = setTimeout(() => stop('Provider timed out'), options.timeoutMs ?? 120000);
+    const timer = setTimeout(() => stop(`Provider timed out after ${(options.timeoutMs ?? 120000) / 1000} seconds`), options.timeoutMs ?? 120000);
     options.signal?.addEventListener('abort', abort, {once: true});
     const cleanup = () => { clearTimeout(timer); options.signal?.removeEventListener('abort', abort); kill(); };
     child.on('error', e => { cleanup(); reject(new Error(`Cannot start reviewer executable: ${e.message}`)); });
-    for (const [stream, isOut] of [[child.stdout, true], [child.stderr, false]] as const) stream.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > (options.outputBytes ?? 2 * 1024 * 1024)) { stop('Provider exceeded output byte limit'); return; }
-      if (isOut) stdout += chunk.toString('utf8'); else stderr += chunk.toString('utf8');
-    });
+    for (const [stream, isOut] of [[child.stdout, true], [child.stderr, false]] as const) {
+      const decoder = new StringDecoder('utf8'); let pending = '';
+      const deliver = (text: string, finish = false) => {
+        if (isOut) stdout += text; else stderr += text;
+        if (!options.onLine) return;
+        pending += text;
+        let newline: number;
+        while ((newline = pending.indexOf('\n')) >= 0) {
+          options.onLine(pending.slice(0, newline).replace(/\r$/, ''), isOut ? 'stdout' : 'stderr');
+          pending = pending.slice(newline + 1);
+        }
+        if (finish && pending) options.onLine(pending, isOut ? 'stdout' : 'stderr');
+      };
+      stream.on('data', (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > (options.outputBytes ?? 2 * 1024 * 1024)) { stop('Provider exceeded output byte limit'); return; }
+        deliver(decoder.write(chunk));
+      });
+      stream.on('end', () => deliver(decoder.end(), true));
+    }
     child.on('close', (code, signal) => { cleanup(); if (failure) reject(failure); else if (code !== 0) reject(new Error(`Provider exited ${signal ?? code}: ${stderr.slice(-2000) || 'no diagnostic output; runtime may be incompatible with the isolation policy'}`)); else resolve({stdout, stderr}); });
     child.stdin.on('error', () => { /* EPIPE is reported by process exit. */ }); child.stdin.end(options.input ?? '');
   });
@@ -60,18 +98,18 @@ export function seatbeltProfile(temp: string, executable: string, projectRoot?: 
 export function codexArgs(schema: string, output: string, cwd: string, model?: string): string[] {
   if (model !== undefined && (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model))) throw new Error('Invalid model identifier');
   const settings = ['approval_policy="never"', 'approvals_reviewer="user"', 'mcp_servers={}', 'hooks={}', 'apps._default.enabled=false', 'agents.enabled=false', 'web_search="disabled"', 'project_doc_max_bytes=0', 'history.persistence="none"', 'cli_auth_credentials_store="file"', 'check_for_update_on_startup=false', 'allow_login_shell=false', 'shell_environment_policy.inherit="none"', 'features.skip_host_skill_discovery=true', ...disabledFeatures.map(f => `features.${f}=false`)];
-  return ['--strict-config', ...settings.flatMap(s => ['-c', s]), 'exec', '--ignore-user-config', '--ignore-rules', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '--color', 'never', '--cd', cwd, '--output-schema', schema, '--output-last-message', output, ...(model ? ['--model', model] : []), '-'];
+  return ['--strict-config', ...settings.flatMap(s => ['-c', s]), 'exec', '--ignore-user-config', '--ignore-rules', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '--json', '--color', 'never', '--cd', cwd, '--output-schema', schema, '--output-last-message', output, ...(model ? ['--model', model] : []), '-'];
 }
 export function verifyRuntime(version: string, help: string, features: string): void {
   if (version.trim() !== `codex-cli ${supportedVersion}`) throw new Error(`Unsupported safe-mode runtime: require codex-cli ${supportedVersion}; found ${version.trim()}. Use prepare/import until this version is audited.`);
-  for (const flag of ['--ignore-user-config', '--ignore-rules', '--sandbox', '--output-schema', '--output-last-message', '--ephemeral', '--strict-config']) if (!help.includes(flag)) throw new Error(`Safe-mode control unavailable: ${flag}. Refusing to review.`);
+  for (const flag of ['--ignore-user-config', '--ignore-rules', '--sandbox', '--output-schema', '--output-last-message', '--ephemeral', '--strict-config', '--json']) if (!help.includes(flag)) throw new Error(`Safe-mode control unavailable: ${flag}. Refusing to review.`);
   for (const feature of [...disabledFeatures, 'skip_host_skill_discovery']) if (!new RegExp(`^${feature}\\s`, 'm').test(features)) throw new Error(`Safe-mode feature unavailable: ${feature}. Refusing to review.`);
 }
 export function verifyFeatureSettings(features: string): void {
   for (const feature of disabledFeatures) if (!new RegExp(`^${feature}\\s+.*\\sfalse$`, 'm').test(features)) throw new Error(`Safe-mode control did not take effect: ${feature}`);
   if (!/^skip_host_skill_discovery\s+.*\strue$/m.test(features)) throw new Error('Host skill discovery could not be disabled');
 }
-export interface CodexOptions {executable?: string; timeoutMs?: number; signal?: AbortSignal; model?: string; authHome?: string; projectRoot?: string}
+export interface CodexOptions extends ProviderOptions {executable?: string; timeoutMs?: number; authHome?: string}
 export async function runCodex(request: Request, options: CodexOptions = {}): Promise<ProviderResult> {
   if (process.platform !== 'darwin' || !fs.existsSync('/usr/bin/sandbox-exec')) throw new Error('Protected Codex execution currently requires macOS Seatbelt. Use the portable prepare/import workflow on this platform.');
   options.signal?.throwIfAborted();
@@ -85,8 +123,9 @@ export async function runCodex(request: Request, options: CodexOptions = {}): Pr
   for (const directory of [home, codexHome, cwd]) fs.mkdirSync(directory, {recursive: true, mode: 0o700});
   const env: NodeJS.ProcessEnv = {PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, HOME: home, CODEX_HOME: codexHome, TMPDIR: temp, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'), OPENSSL_CONF: '/dev/null', LANG: 'en_US.UTF-8', TERM: 'dumb'};
   const profile = seatbeltProfile(temp, executable, projectRoot);
-  const invoke = (args: string[], input?: string, timeoutMs = options.timeoutMs ?? 120000) => runProcess('/usr/bin/sandbox-exec', ['-p', profile, executable, ...args], {cwd, env, input, timeoutMs, signal: options.signal});
+  const invoke = (args: string[], input?: string, timeoutMs = options.timeoutMs ?? 120000, onLine?: RunOptions['onLine']) => runProcess('/usr/bin/sandbox-exec', ['-p', profile, executable, ...args], {cwd, env, input, timeoutMs, signal: options.signal, onLine});
   try {
+    options.onProgress?.('Checking the protected Codex runtime (startup probes have 5-second limits).');
     // Probe the outer boundary without invoking a model or reading credentials.
     await runProcess('/usr/bin/sandbox-exec', ['-p', profile, '/usr/bin/true'], {cwd, env, timeoutMs: 5000, signal: options.signal});
     const version = (await invoke(['--version'], undefined, 5000)).stdout;
@@ -97,6 +136,7 @@ export async function runCodex(request: Request, options: CodexOptions = {}): Pr
     // features list rejects --strict-config in 0.154.0; exec itself requires it below.
     const configured = await invoke([...controls.slice(1, controls.indexOf('exec')), 'features', 'list'], undefined, 5000);
     verifyFeatureSettings(configured.stdout);
+    options.onProgress?.(`Codex ${supportedVersion} protection checks passed; loading authentication.`);
     // Existing file-based login stays usable. Never read or copy config, rules, MCP tokens, plugins, or skills.
     const authHome = options.authHome ?? process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex');
     const auth = path.join(authHome, 'auth.json');
@@ -110,7 +150,19 @@ export async function runCodex(request: Request, options: CodexOptions = {}): Pr
     const schema = path.join(temp, 'schema.json'), output = path.join(temp, 'response.json');
     fs.writeFileSync(schema, json(responseSchema(request.id, request.max_comments)), {mode: 0o600, flag: 'wx'});
     const args = codexArgs(schema, output, cwd, options.model);
-    await invoke(args, packetText(request));
+    options.onProgress?.(`Starting Codex review; ${(options.timeoutMs ?? 120000) / 1000}-second timeout. Press Ctrl+C to cancel.`);
+    let lastIssue: string | undefined;
+    try {
+      await invoke(args, packetText(request), options.timeoutMs ?? 120000, (line, stream) => {
+        const progress = stream === 'stdout' ? eventProgress(line) : {issue: providerIssue(line)};
+        if (progress.issue && progress.issue !== lastIssue) {
+          lastIssue = progress.issue; options.onProgress?.(lastIssue);
+        } else if ('message' in progress && progress.message && !progress.issue) options.onProgress?.(progress.message);
+      });
+    } catch (e) {
+      throw new Error(`${(e as Error).message}${lastIssue ? `\nLast Codex issue: ${lastIssue}` : ''}`);
+    }
+    options.onProgress?.('Reading the final response for validation and import.');
     // Progress output is never parsed as the final answer.
     let stat: fs.Stats;
     try { stat = fs.lstatSync(output); } catch { throw new Error('Codex produced no final response file'); }

@@ -2,7 +2,9 @@
 
 Run `npm ci`, then:
 
-Implementation verification on Node 22.22.0/macOS: build and typecheck passed; all **37** default tests passed with no skips; the actual Development Host smoke passed; the three-workspace offline demo ran; CLI linking/execution worked in an isolated npm prefix; VSIX packaging and `npm audit` passed (zero reported vulnerabilities). Installed Codex 0.154.0 feature preflight passed without authentication or a model request. No live model run was performed.
+Initial implementation verification on Node 22.22.0/macOS: build and typecheck passed; all **37** original default tests passed with no skips; the actual Development Host smoke passed; the three-workspace offline demo ran; CLI linking/execution worked in an isolated npm prefix; VSIX packaging and `npm audit` passed (zero reported vulnerabilities). Additional provider tests cover progress privacy, split UTF-8 events, and retention of diagnostic classes on timeout.
+
+Progress-update verification: build/typecheck and all **40** default tests passed, with no skips. A separate live review completed as described below; no live calls were added to the default test suite.
 
 | Command | Purpose |
 | --- | --- |
@@ -28,4 +30,4 @@ The smoke checks API behavior, not visual presentation. Still inspect these manu
 - Native diff scroll/focus behavior (the requested selection is best-effort).
 - Restricted Mode activation and a genuinely concurrent second window's conflict experience.
 
-No live Codex model execution or editorial output quality has been verified. The installed runtime's help, version, feature controls and OS launch boundary are checked without a model request. macOS OS updates and future Codex versions can require an adapter audit. This MVP does not claim security against a malicious runtime or a same-user process racing filesystem checks.
+A separate live Codex smoke on 2026-09-11 used the protected adapter on the bundled Markdown example: it completed in 18 seconds, imported an editorial letter and four comments, and left source hashes unchanged. This is one observed run, not a latency benchmark or a broad editorial-quality evaluation. The default suite remains fully offline. macOS OS updates and future Codex versions can require an adapter audit. This MVP does not claim security against a malicious runtime or a same-user process racing filesystem checks.

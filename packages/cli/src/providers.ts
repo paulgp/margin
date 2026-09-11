@@ -1,6 +1,7 @@
 import {Request, ReviewResponse, Provenance} from '@margin/core';
 export interface ProviderResult {response: string; provenance: Provenance}
-export interface Provider {name: string; run(request: Request, options?: {signal?: AbortSignal; model?: string; projectRoot?: string}): Promise<ProviderResult>}
+export interface ProviderOptions {signal?: AbortSignal; model?: string; projectRoot?: string; onProgress?: (message: string) => void}
+export interface Provider {name: string; run(request: Request, options?: ProviderOptions): Promise<ProviderResult>}
 export const mockProvider: Provider = {
   name: 'mock',
   async run(request, options) {

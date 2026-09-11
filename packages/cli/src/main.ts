@@ -30,17 +30,24 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   if (command === 'prepare') { output(data, `${prepared.request.id}\n${Object.entries(prepared.paths).map(([k, v]) => `${k}: ${path.join(root, v)}`).join('\n')}`); return; }
   const provider = values.provider ?? 'mock';
   if (provider !== 'mock' && provider !== 'codex') throw new Error('Provider must be mock or codex; request retained for prepare/import');
-  const controller = new AbortController(); const cancel = () => controller.abort();
+  const started = Date.now(); let stage = `Starting ${provider}.`;
+  const progress = (message: string) => {
+    const elapsed = Math.floor((Date.now() - started) / 1000);
+    process.stderr.write(values.json ? JSON.stringify({type: 'progress', provider, elapsed_seconds: elapsed, message}) + '\n' : `[margin +${elapsed}s] ${message}\n`);
+  };
+  progress(`Prepared ${prepared.request.id}. Packet: ${prepared.paths.packet}`);
+  const heartbeat = setInterval(() => progress(`Still waiting. Last status: ${stage}`), 10000);
+  const controller = new AbortController(); const cancel = () => { progress('Cancelling reviewer; prepared request will be retained.'); controller.abort(); };
   process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
   try {
     const adapter = provider === 'mock' ? mockProvider : (await import('./codex.js')).codexProvider;
-    const result = await adapter.run(prepared.request, {model: values.model, signal: controller.signal, projectRoot: root});
+    const result = await adapter.run(prepared.request, {model: values.model, signal: controller.signal, projectRoot: root, onProgress: message => { stage = message; progress(message); }});
     const session = importResponse(root, prepared.request.id, result.response, result.provenance);
     output({...data, review_id: session.id, session: `.reviews/sessions/${session.id}.json`}, `${session.id}: ${session.comments.length} comments\nRequest: ${prepared.request.id}\nOpen Margin: Select Review in VS Code. Draft untouched.`);
   } catch (e) {
     diagnostic(root, prepared.request.id, `Review orchestration failed (${provider}). The request is retained. Consult the CLI error; provider logs are not persisted because they can contain private runtime information.`);
     throw new Error(`${(e as Error).message}\nPrepared request retained: ${prepared.request.id}\nPacket: ${prepared.paths.packet}\nUse margin import ${prepared.request.id} <response.json>`);
   }
-  finally { process.off('SIGINT', cancel); process.off('SIGTERM', cancel); }
+  finally { clearInterval(heartbeat); process.off('SIGINT', cancel); process.off('SIGTERM', cancel); }
 }
 if (require.main === module) main().catch(error => { process.stderr.write(process.argv.includes('--json') ? JSON.stringify({error: error.message}) + '\n' : `Margin: ${error.message}\n`); process.exitCode = 1; });

@@ -44,6 +44,8 @@ margin review draft.md --provider codex \
 
 The default provider is `mock`, a deterministic demonstration explicitly labeled as such. `--provider codex` sends the frozen packet to Codex using existing file-based login or `OPENAI_API_KEY`; it does not install or log into Codex for you. `--model NAME` records the requested model. When the CLI does not report the actual model, provenance says `null`. Read [the protection policy](docs/codex-safety.md) for supported controls, authentication, and failure modes.
 
+Review commands print the prepared request ID immediately, followed by elapsed-time progress on stderr. Codex reports startup checks, turn activity, and fixed diagnostic descriptions for connection, authentication, schema, and permission errors. A heartbeat appears every ten seconds. The 120-second review timeout is a ceiling, not an expected duration. On timeout, the last recognized Codex issue is retained in the error. Ctrl+C cancels the process and retains the request. JSON success output stays on stdout; `--json` progress uses JSON records on stderr. Raw model reasoning, response text, and credentials are never printed as progress.
+
 Open the same project root in VS Code with Margin installed or running in a Development Host. New completed reviews produce a selection notification. **Margin: Refresh** rescans completed sidecars and recomputes locations against current editor text. No model calls occur in the extension.
 
 ## Prepare and import with any reviewer
