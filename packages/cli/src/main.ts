@@ -2,15 +2,16 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import {parseArgs} from 'node:util';
-import {init, prepare, importResponse, diagnostic, sourcePath} from '@margin/core';
+import {init, prepare, importResponse, diagnostic, sourcePath, parseLineRanges, focusDescription, maxFocusRanges} from '@margin/core';
 import {mockProvider} from './providers';
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
-  const {values, positionals} = parseArgs({args, allowPositionals: true, strict: true, options: {project: {type: 'boolean'}, brief: {type: 'string'}, 'max-comments': {type: 'string'}, provider: {type: 'string'}, model: {type: 'string'}, root: {type: 'string'}, json: {type: 'boolean'}, help: {type: 'boolean'}, version: {type: 'boolean', short: 'v'}}});
+  const {values, positionals} = parseArgs({args, allowPositionals: true, strict: true, options: {project: {type: 'boolean'}, brief: {type: 'string'}, 'max-comments': {type: 'string'}, provider: {type: 'string'}, model: {type: 'string'}, root: {type: 'string'}, lines: {type: 'string', multiple: true}, focus: {type: 'string', multiple: true}, json: {type: 'boolean'}, help: {type: 'boolean'}, version: {type: 'boolean', short: 'v'}}});
   const output = (data: unknown, human: string) => process.stdout.write(values.json ? JSON.stringify(data) + '\n' : human + '\n');
   if (values.version) { const version: string = require('../package.json').version; output({version}, `margin ${version}`); return; }
   const root = fs.realpathSync(path.resolve(values.root ?? process.cwd())); const [command, ...rest] = positionals;
-  if (values.help || !command) { output({commands: ['init', 'prepare', 'review', 'import', 'doctor']}, 'Margin — source-first, comment-only review\n\nmargin init\nmargin prepare <file> | --project [--brief TEXT] [--max-comments N] [--json]\nmargin review <file> | --project --provider mock|codex [--model NAME]\nmargin import <request-id> <response.json> [--json]\nmargin doctor [--json] (macOS connection diagnostics; no model call)\n\nAll commands accept --root DIR. Reviews read saved disk contents; save deliberately in your editor first. Margin never saves or edits drafts.'); return; }
+  if (values.help || !command) { output({commands: ['init', 'prepare', 'review', 'import', 'doctor']}, 'Margin — source-first, comment-only review\n\nmargin init\nmargin prepare <file> | --project [--brief TEXT] [--max-comments N] [--json]\nmargin review <file> | --project --provider mock|codex [--model NAME]\nmargin import <request-id> <response.json> [--json]\nmargin doctor [--json] (macOS connection diagnostics; no model call)\n\nprepare/review focus options (repeatable):\n  --lines 12-25,40-55       Lines in the positional source file\n  --focus file.tex:12-25    Lines in a selected project-relative file\nLine numbers are 1-based, inclusive saved-source lines. Other selected text remains context.\n\nAll commands accept --root DIR. Reviews read saved disk contents; save deliberately in your editor first. Margin never saves or edits drafts.'); return; }
+  if ((values.lines || values.focus) && command !== 'prepare' && command !== 'review') throw new Error('--lines and --focus are only accepted by prepare/review; import uses the original request scope');
   if (command === 'doctor') {
     if (rest.length) throw new Error('doctor takes no file arguments');
     const controller = new AbortController(), cancel = () => controller.abort();
@@ -32,7 +33,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     const stat = fs.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024) throw new Error('Response must be a regular JSON file of at most 1 MiB');
     const session = importResponse(root, rest[0], fs.readFileSync(file, 'utf8'));
-    output({project_root: root, review_id: session.id, session: `.reviews/sessions/${session.id}.json`}, `Imported ${session.id} (${session.comments.length} comments). Draft untouched.\nProject folder: ${root}\nIn VS Code, open this folder and run Margin: Select Review.`); return;
+    output({project_root: root, review_id: session.id, session: `.reviews/sessions/${session.id}.json`, ...(session.focus ? {focus: session.focus} : {})}, `Imported ${session.id} (${session.comments.length} comments). Draft untouched.\nProject folder: ${root}${session.focus ? `\nFocus (saved snapshot lines): ${focusDescription(session.focus)}` : ''}\nIn VS Code, open this folder and run Margin: Select Review.`); return;
   }
   if (command !== 'prepare' && command !== 'review') throw new Error(`Unknown command: ${command}`);
   if (rest.length > 1) throw new Error('Use one positional source file or --project');
@@ -42,11 +43,25 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       throw new Error(`${(error as Error).message}\nProject folder: ${root}\nSource file arguments must be relative to the project folder; hidden folders and build/dependency paths are excluded.\nUse --root DIR to choose your writing project's folder, then pass the file path relative to it. Open that same folder in VS Code.`);
     }
   }
+  if (values.lines && (!rest[0] || values.project)) throw new Error('--lines requires a positional source file. For --project, use --focus path/to/file.tex:12-25');
+  const focus = [
+    ...(values.lines ?? []).flatMap(value => parseLineRanges(rest[0], value)),
+    ...(values.focus ?? []).flatMap(value => {
+      const separator = value.lastIndexOf(':');
+      if (separator < 1) throw new Error('--focus requires a project-relative file and lines, such as sections/introduction.tex:12-25');
+      return parseLineRanges(value.slice(0, separator), value.slice(separator + 1));
+    }),
+  ];
+  if (focus.length > maxFocusRanges) throw new Error(`At most ${maxFocusRanges} focus ranges are allowed`);
   process.stderr.write('Margin reviews SAVED DISK CONTENTS. Unsaved editor buffers are not captured; Margin never saves drafts.\n');
   const location = `Project folder: ${root}\nReviews directory: ${path.join(root, '.reviews')}`;
   process.stderr.write(values.json ? JSON.stringify({type: 'progress', message: location, project_root: root}) + '\n' : location + '\n');
-  const prepared = prepare(root, {file: rest[0], project: values.project, brief: values.brief, maxComments: values['max-comments'] === undefined ? undefined : Number(values['max-comments'])});
-  const data = {project_root: root, request_id: prepared.request.id, snapshot_id: prepared.snapshot.id, ...prepared.paths};
+  const prepared = prepare(root, {file: rest[0], project: values.project, brief: values.brief, maxComments: values['max-comments'] === undefined ? undefined : Number(values['max-comments']), ...(focus.length ? {focus} : {})});
+  if (prepared.request.focus) {
+    const message = `Focus (saved snapshot lines): ${focusDescription(prepared.request.focus)}. Other selected text is context-only; the full selected files remain in the packet.`;
+    process.stderr.write(values.json ? JSON.stringify({type:'progress', message}) + '\n' : message + '\n');
+  }
+  const data = {project_root: root, request_id: prepared.request.id, snapshot_id: prepared.snapshot.id, ...prepared.paths, ...(prepared.request.focus ? {focus: prepared.request.focus} : {})};
   if (command === 'prepare') { output(data, `${prepared.request.id}\n${Object.entries(prepared.paths).map(([k, v]) => `${k}: ${path.join(root, v)}`).join('\n')}`); return; }
   const provider = values.provider ?? 'mock';
   if (provider !== 'mock' && provider !== 'codex') throw new Error('Provider must be mock or codex; request retained for prepare/import');

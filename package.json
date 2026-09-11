@@ -1,5 +1,5 @@
 {
-  "name": "margin-workspace", "version": "0.3.0", "private": true,
+  "name": "margin-workspace", "version": "0.4.0", "private": true,
   "workspaces": ["packages/*"], "engines": {"node": ">=22 <23 || >=24 <25"},
   "scripts": {
     "build": "tsc -b && node scripts/bundle.mjs",

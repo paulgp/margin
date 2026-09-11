@@ -12,7 +12,7 @@ With Node 22 or 24 LTS, npm, and desktop VS Code installed, run this from your M
 npm run setup
 ```
 
-Setup installs the pinned build dependencies, builds matching **0.3.0** CLI/extension packages, checks their SHA-256 hashes, and installs both. It detects VS Code on PATH or in the usual macOS Applications locations. The CLI is installed into your existing npm global prefix as a standalone package, so it keeps working if you move the checkout. No `npm link` or F5 session is needed. Nothing is published, no model is called, and setup does not open an editor window.
+Setup installs the pinned build dependencies, builds matching **0.4.0** CLI/extension packages, checks their SHA-256 hashes, and installs both. It detects VS Code on PATH or in the usual macOS Applications locations. The CLI is installed into your existing npm global prefix as a standalone package, so it keeps working if you move the checkout. No `npm link` or F5 session is needed. Nothing is published, no model is called, and setup does not open an editor window.
 
 In your existing VS Code window, run **Developer: Reload Window** once after installation. Open your writing project's folder normally, save your draft deliberately, and run in that folder's terminal:
 
@@ -106,6 +106,40 @@ If ordinary Codex works but a protected review stalls, run `margin doctor` (or `
 
 Open the same project root in VS Code with Margin installed or running in a Development Host. New completed reviews produce a selection notification. **Margin: Refresh** rescans completed sidecars and recomputes locations against current editor text. No model calls occur in the extension.
 
+## Focus on specific lines
+
+Choose one or several ranges in a saved file:
+
+```sh
+margin review draft.md --lines 12-25,40-55 --provider codex \
+  --brief "Focus on the reasoning and transitions in these passages."
+# From the repository, try the demo offline:
+margin review draft.md --root .demo/markdown --lines 3,7-9 --provider mock
+```
+
+`--lines` accepts individual lines, inclusive ranges, comma-separated lists, and repeated options. Numbers are **1-based physical source lines in the saved snapshot**, matching the editor's line numbers after saving; wrapped visual rows do not count. Overlapping/adjacent ranges merge. Zero, reversed, out-of-file, and entirely blank ranges produce errors; nothing is silently clamped. Up to 200 input ranges are allowed.
+
+For an explicit multi-file project, use repeatable `--focus` options with project-relative filenames:
+
+```sh
+margin review --project --provider codex \
+  --focus sections/introduction.tex:12-25 \
+  --focus sections/methods.tex:40-55,70
+```
+
+Focus targets must already be selected source files in the manifest; context-only files cannot receive comments. **Full selected files still go into the snapshot and packet as context.** Focus limits where comments may originate; it does not limit what source text is shared or reduce the packet/file size limits. No other project files are discovered or read.
+
+Blocks are split at focus boundaries, with outside passages labeled context-only. The importer rejects the whole response if any comment falls outside focus, including a quote that crosses its boundary. The editorial instructions also ask the letter to concentrate on the chosen passages. Original quote anchors, context, and file identity remain intact.
+
+Focus works with `prepare` and every provider:
+
+```sh
+margin prepare draft.md --lines 12-25,40-55 --json
+margin import request-REPLACE-WITH-RETURNED-ID response.json --json
+```
+
+Import uses the saved request's ranges even after you edit the draft; it never reinterprets the old line numbers against today's file. The extension shows focus in the review selector, tree, and editorial letter, labeled as snapshot lines. Comments still follow subsequent edits and can be manually reattached. CLI JSON results include the frozen focus ranges and their UTF-16 offsets. Focused request/session records use schema version 2 and require Margin **0.4.0+**; existing version 1 reviews remain readable. The model response, config, snapshot, and mutable discussion-state schemas remain version 1.
+
 ## Prepare and import with any reviewer
 
 ```sh
@@ -156,7 +190,7 @@ npm run test:install
 npm run package
 ```
 
-Packaging creates `dist/margin-0.3.0.vsix`, `dist/margin-cli-0.3.0.tgz`, and `dist/margin-0.3.0.json` containing their checksums. Filenames and package versions are derived from the workspace manifests and must agree. Both packages are self-contained: the CLI archive has no runtime npm dependencies or installation scripts, and the VSIX needs no development checkout. Nothing is published. To install already built artifacts without fetching dependencies or rebuilding, run `npm run setup -- --from-dist`. The checksum manifest detects corruption; it is not a signature or proof of who produced an artifact. See [installation and release details](docs/installation.md) for manual installation and uninstalling.
+Packaging creates `dist/margin-0.4.0.vsix`, `dist/margin-cli-0.4.0.tgz`, and `dist/margin-0.4.0.json` containing their checksums. Filenames and package versions are derived from the workspace manifests and must agree. Both packages are self-contained: the CLI archive has no runtime npm dependencies or installation scripts, and the VSIX needs no development checkout. Nothing is published. To install already built artifacts without fetching dependencies or rebuilding, run `npm run setup -- --from-dist`. The checksum manifest detects corruption; it is not a signature or proof of who produced an artifact. See [installation and release details](docs/installation.md) for manual installation and uninstalling.
 
 The default test suite is offline and uses a fake Codex executable. On macOS the provider tests also exercise actual Seatbelt read/write denials. `test:install` builds/packages and installs the actual CLI and VSIX into temporary npm/VS Code directories, runs a mock review, and checks repeat installation without modifying your normal extension installation. It may download the pinned build dependencies; it makes no model requests. The separate Development Host smoke test opens an isolated disposable workspace; it uses the installed macOS VS Code when found, otherwise the VS Code test runner may download one. Set `MARGIN_VSCODE_EXECUTABLE` to use an existing installation elsewhere.
 

@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import {
   Session, ReviewState, ReviewComment, Attachment, Evidence, Generation, Discussion,
   listSessions, loadSession, loadState, saveState, snapshotText, config, sourcePath, safePath,
-  readBytes, decode, attach, mapEdits, offsetPosition, manualOverride, id, gitContext,
+  readBytes, decode, attach, mapEdits, offsetPosition, manualOverride, id, gitContext, focusDescription,
 } from '@margin/core';
 import {nextOpenComment, reviewProgress} from './navigation';
 
@@ -106,7 +106,7 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
   }
   private async selectReview(arg?: Item): Promise<void> {
     const sessions = listSessions(this.root).map(id => loadSession(this.root, id)).sort((a, b) => b.created_at.localeCompare(a.created_at));
-    const choices = sessions.map(s => ({label: `${s.created_at} · ${s.provenance.provider}`, description: s.id, detail: s.brief, session: s}));
+    const choices = sessions.map(s => ({label: `${s.created_at} · ${s.provenance.provider}`, description: s.id, detail: `${s.brief}${s.focus ? ` · Focus (snapshot lines): ${focusDescription(s.focus)}` : ''}`, session: s}));
     const choice = arg?.id ? choices.find(s => s.session.id === arg.id) : await vscode.window.showQuickPick(choices, {title: 'Select Margin review session'});
     if (arg?.id && !choice) throw new Error('Review session not found');
     if (!choice) return;
@@ -187,7 +187,7 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
       t.collapsibleState = collapsed.get(c.id) ?? vscode.CommentThreadCollapsibleState.Collapsed;
       this.threads.set(c.id, t); this.threadIds.set(t, c.id);
     }
-    this.tree.message = `${this.selected.provenance.provider} · ${this.filter} · Decisions belong to this session\nCurrent: ${this.gitLabel}${this.warning ? '\n' + this.warning : ''}`;
+    this.tree.message = `${this.selected.provenance.provider} · ${this.filter} · Decisions belong to this session${this.selected.focus ? `\nFocus (snapshot lines): ${focusDescription(this.selected.focus)}` : ''}\nCurrent: ${this.gitLabel}${this.warning ? '\n' + this.warning : ''}`;
     const progress = reviewProgress(this.selected, this.state);
     this.tree.description = `${progress.open} of ${progress.total} open`;
     this.changes.fire(); this.decorate();
@@ -233,7 +233,7 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
   }
   provideTextDocumentContent(uri: vscode.Uri): string {
     const params = new URLSearchParams(uri.query); const session = loadSession(this.root, params.get('review') ?? '');
-    if (uri.path.startsWith('/letter/')) return `Margin editorial letter\n${session.created_at} · ${session.provenance.provider}\nRequested model: ${session.provenance.requested_model ?? 'unspecified'}\nReported model: ${session.provenance.reported_model ?? 'not reported'}\nBrief: ${session.brief}\n\n${session.summary}`;
+    if (uri.path.startsWith('/letter/')) return `Margin editorial letter\n${session.created_at} · ${session.provenance.provider}\nRequested model: ${session.provenance.requested_model ?? 'unspecified'}\nReported model: ${session.provenance.reported_model ?? 'not reported'}\nBrief: ${session.brief}${session.focus ? `\nFocus (saved snapshot lines): ${focusDescription(session.focus)}\nOther selected text was supplied as context.` : ''}\n\n${session.summary}`;
     return snapshotText(this.root, session.snapshot_id, params.get('file') ?? '');
   }
   private async letter(): Promise<void> { if (!this.selected) throw new Error('Select a review first'); await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(this.uri('letter')), {preview: true}); }
@@ -324,7 +324,7 @@ class Margin implements vscode.TreeDataProvider<Item>, vscode.TextDocumentConten
     const next = structuredClone(this.state); next.comments[c.id].override = override; this.persist(next); await this.refresh();
   }
   /** Read-only diagnostics for the Extension Development Host smoke test. */
-  inspect() { return {session: this.selected?.id, threads: this.threads.size, threadStates: Object.fromEntries([...this.threads].map(([id, thread]) => [id, thread.collapsibleState])), items: this.getChildren().length, attachments: [...this.attachments.values()], current: this.current, filter: this.filter, progress: this.selected && this.state ? reviewProgress(this.selected, this.state) : undefined, statusText: this.status.text, treeDescription: this.tree.description}; }
+  inspect() { return {session: this.selected?.id, threads: this.threads.size, threadStates: Object.fromEntries([...this.threads].map(([id, thread]) => [id, thread.collapsibleState])), items: this.getChildren().length, attachments: [...this.attachments.values()], current: this.current, filter: this.filter, progress: this.selected && this.state ? reviewProgress(this.selected, this.state) : undefined, statusText: this.status.text, treeDescription: this.tree.description, treeMessage: this.tree.message}; }
   dispose(): void { this.reviewEpoch++; this.generation.next(); this.locationGeneration.next(); if (this.timer) clearTimeout(this.timer); for (const t of this.threads.values()) t.dispose(); for (const d of this.disposables) d.dispose(); void vscode.commands.executeCommand('setContext', 'margin.hasReview', false); }
 }
 export async function activate(context: vscode.ExtensionContext) {

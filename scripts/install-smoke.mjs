@@ -30,12 +30,18 @@ try {
   const review = JSON.parse(await run(process.execPath, [installed.binary, 'review', 'draft.md', '--provider', 'mock', '--json'], {cwd: project, capture: true}));
   const sessionFile = path.join(project, review.session), session = fs.readFileSync(sessionFile);
   assert.ok(JSON.parse(session).comments.length > 0);
+  const focused = JSON.parse(await run(process.execPath, [installed.binary, 'review', 'draft.md', '--lines', '3,7-9', '--provider', 'mock', '--json'], {cwd: project, capture: true}));
+  const focusedFile = path.join(project, focused.session), focusedBytes = fs.readFileSync(focusedFile), focusedSession = JSON.parse(focusedBytes);
+  assert.equal(focusedSession.schema_version, 2);
+  assert.equal(focusedSession.focus.length, 2);
+  assert.ok(focusedSession.comments.every(c => focusedSession.focus.some(r => r.file === c.anchor.path && c.anchor.start >= r.start && c.anchor.end <= r.end)));
   await setup(['--from-dist', ...args], {run}); // Same-version reinstall/update must be repeatable.
   assert.deepEqual(fs.readFileSync(path.join(project, 'draft.md')), before);
   assert.deepEqual(fs.readFileSync(sessionFile), session);
+  assert.deepEqual(fs.readFileSync(focusedFile), focusedBytes);
   assert.deepEqual(fs.readFileSync(path.join(legacy, 'main.js')), legacyBefore);
   const pkg = JSON.parse(fs.readFileSync(path.join(prefix, 'lib/node_modules/margin-cli/package.json')));
   assert.equal(pkg.dependencies, undefined); assert.equal(pkg.scripts, undefined);
   assert.ok(!fs.lstatSync(path.join(prefix, 'lib/node_modules/margin-cli')).isSymbolicLink());
-  console.log('Installation smoke passed: real standalone CLI and VSIX installed in isolated directories; offline review and repeat installation preserved draft/review bytes.');
+  console.log('Installation smoke passed: real standalone CLI and VSIX installed in isolated directories; full/focused offline reviews and repeat installation preserved draft/review bytes.');
 } finally { fs.rmSync(temp, {recursive: true, force: true}); }

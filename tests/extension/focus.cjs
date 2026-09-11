@@ -1,0 +1,35 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vscode = require('vscode');
+const core = require('../../packages/core/dist');
+const {mockProvider} = require('../../packages/cli/dist/providers');
+
+exports.run = async (api,root) => {
+  const bytes=Buffer.from('\ufeffThe opening remains available as context.\r\nA café 🐈 makes a specific claim worth reviewing.\r\nThe closing remains available as context.\r\n');
+  fs.writeFileSync(path.join(root,'focused.md'),bytes);
+  const {request}=core.prepare(root,{file:'focused.md',focus:[{file:'focused.md',start_line:2,end_line:2}]});
+  const result=await mockProvider.run(request), session=core.importResponse(root,request.id,result.response,result.provenance);
+  await vscode.commands.executeCommand('margin.selectReview',{id:session.id});
+  assert.equal(api.inspect().threads,1);
+  assert.match(api.inspect().treeMessage,/Focus \(snapshot lines\): focused.md:2/);
+  await vscode.commands.executeCommand('margin.letter');
+  assert.match(vscode.window.activeTextEditor.document.getText(),/Focus \(saved snapshot lines\): focused.md:2/);
+  await vscode.commands.executeCommand('margin.nextOpen');
+  const editor=vscode.window.activeTextEditor, doc=editor.document;
+  assert.equal(doc.uri.fsPath,path.join(root,'focused.md'));
+  assert.equal(editor.selection.start.line,1);
+  assert.equal(doc.getText(editor.selection),session.comments[0].anchor.quote);
+  const edit=new vscode.WorkspaceEdit();edit.insert(doc.uri,new vscode.Position(0,0),'A simulated unsaved preface.\n');
+  await vscode.workspace.applyEdit(edit);
+  await vscode.commands.executeCommand('margin.refresh');
+  await vscode.commands.executeCommand('margin.nextOpen');
+  assert.equal(vscode.window.activeTextEditor.selection.start.line,2,'current attachment follows edits beyond the original line numbers');
+  assert.equal(api.inspect().attachments[0].unsaved,true);
+  assert.match(api.inspect().treeMessage,/focused.md:2/,'focus remains labeled with snapshot line numbers');
+  await vscode.commands.executeCommand('margin.original',{id:session.comments[0].id});
+  assert.equal(vscode.window.activeTextEditor.document.getText(),core.decode(bytes),'read-only original retains the surrounding source');
+  assert.deepEqual(fs.readFileSync(path.join(root,'focused.md')),bytes);
+  assert.deepEqual(core.loadSession(root,session.id).focus,request.focus);
+  console.log('Margin focused-review smoke passed: version 2 import, focus labels, Unicode/CRLF ranges, full original, dirty-buffer movement, unchanged saved source.');
+};

@@ -39,6 +39,14 @@ let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>input+
   const schema=JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema')+1],'utf8'));
   const out=args[args.indexOf('--output-last-message')+1];
   const response={schema_version:1,request_id:schema.properties.request_id.const,summary:'Fake executable, verified protected arguments and OS read/write denials.',comments:[]};
+  if(mode==='focus') {
+    assert.ok(input.includes('REVIEW FOCUS (inclusive saved-snapshot lines): draft.md:3'));
+    const marker='SOURCE DATA (JSON strings preserve exact newlines; decode before quoting):\\n';
+    const blocks=JSON.parse(input.slice(input.indexOf(marker)+marker.length,input.lastIndexOf('\\nReturn {')));
+    assert.ok(blocks.some(b=>b.role==='context'));
+    const selected=blocks.find(b=>b.role==='source');assert.ok(selected);
+    response.comments.push({file:selected.file,block_id:selected.block_id,quote:selected.text.trim(),category:'argument',body:'Fake focused observation.'});
+  }
   if(mode==='missing')return;
   if(mode==='symlink'){fs.symlinkSync(${JSON.stringify(path.join(authorRoot,'draft.md'))},out);return;}
   fs.writeFileSync(out,mode==='malformed'?'not json':JSON.stringify(response));
@@ -143,6 +151,17 @@ for (const mode of ['success','version','flags','failure','timeout','overflow','
 test('Codex timeout retains its last diagnostic class without exposing raw event contents', {skip:process.platform!=='darwin'}, async t => {
   const root=fixture(t);const {request}=core.prepare(root,{file:'draft.md'}), options=fake(t,'retry-timeout',root);
   await assert.rejects(runCodex(request,{...options,timeoutMs:300}),error=>/timed out/.test(error.message)&&/connection problem/.test(error.message)&&!error.message.includes('SECRET'));
+});
+
+test('protected Codex fake executable receives focused blocks and imports against their frozen scope', {skip:process.platform!=='darwin'}, async t => {
+  const root=fixture(t);gitFixture(root);
+  const before=protectedEvidence(root,['draft.md']);
+  const {request}=core.prepare(root,{file:'draft.md',focus:[{file:'draft.md',start_line:3,end_line:3}]});
+  const result=await runCodex(request,fake(t,'focus',root));
+  const session=core.importResponse(root,request.id,result.response,result.provenance);
+  assert.equal(session.comments.length,1);assert.deepEqual(session.focus,request.focus);
+  assert.equal(session.comments[0].anchor.quote,'The central claim needs evidence.');
+  assert.deepEqual(protectedEvidence(root,['draft.md']),before);
 });
 
 test('Codex adapter cancellation and missing auth preserve source/index', {skip:process.platform!=='darwin'}, async t => {

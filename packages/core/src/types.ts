@@ -8,9 +8,12 @@ export interface GitContext {head: string | null; branch: string | null}
 export interface SourceFile {path: string; role: 'source' | 'context'; sha256: string; bytes: number}
 export interface Snapshot {schema_version: 1; id: string; captured_at: string; git: GitContext; files: SourceFile[]}
 export interface Block {id: string; file: string; start: number; end: number; text: string; role: 'source' | 'context'}
+/** One-based, inclusive physical lines in the saved decoded source. */
+export interface LineRange {file: string; start_line: number; end_line: number}
+export interface FocusRange extends LineRange {start: number; end: number}
 export interface Request {
-  schema_version: 1; id: string; snapshot_id: string; created_at: string; brief: string; max_comments: number;
-  eligible_files: string[]; blocks: Block[]; instructions: string;
+  schema_version: 1 | 2; id: string; snapshot_id: string; created_at: string; brief: string; max_comments: number;
+  eligible_files: string[]; blocks: Block[]; instructions: string; focus?: FocusRange[];
 }
 export interface ResponseComment {file: string; block_id: string; quote: string; category: Category; body: string}
 export interface ReviewResponse {schema_version: 1; request_id: string; summary: string; comments: ResponseComment[]}
@@ -21,8 +24,8 @@ export interface Anchor extends Evidence {snapshot_id: string; block_id: string}
 export interface ReviewComment {id: string; category: Category; body: string; anchor: Anchor}
 export interface Provenance {provider: string; requested_model: string | null; reported_model: string | null; runtime?: string}
 export interface Session {
-  schema_version: 1; id: string; request_id: string; snapshot_id: string; created_at: string; brief: string;
-  summary: string; provenance: Provenance; eligible_files: string[]; comments: ReviewComment[];
+  schema_version: 1 | 2; id: string; request_id: string; snapshot_id: string; created_at: string; brief: string;
+  summary: string; provenance: Provenance; eligible_files: string[]; comments: ReviewComment[]; focus?: FocusRange[];
 }
 export type Discussion = 'open' | 'resolved' | 'dismissed';
 export interface Override extends Evidence {source_text: string; source_sha256: string; unsaved: boolean; created_at: string}

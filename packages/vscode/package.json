@@ -2,7 +2,7 @@
   "name": "margin",
   "displayName": "Margin",
   "description": "Source-first, comment-only writing review for Markdown, Typst, and LaTeX.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "margin-local",
   "private": true,
   "repository": {

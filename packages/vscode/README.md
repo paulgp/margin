@@ -38,6 +38,13 @@ Use **Margin: Show Editorial Letter**, **Margin: Refresh**, and **Margin: Filter
 from the command palette. Multi-file projects use an explicit `.reviews/config.json` manifest.
 For a renamed target, add its new path to that manifest and refresh.
 
+To focus a CLI review, use `margin review draft.md --lines 12-25,40-55 --provider codex`,
+or `--project --focus sections/introduction.tex:12-25` with an explicit manifest.
+Other selected text stays in the packet as context, and comments must originate within the chosen
+inclusive saved-source lines. Focus appears in the selector, tree, and editorial letter as
+**snapshot lines**. Comments follow later edits normally; Margin never saves an unsaved selection.
+Focused reviews need Margin 0.4.0 or newer. Existing reviews remain supported.
+
 Snapshots contain full text and are private via `.reviews/.gitignore` by default.
 The extension never calls a model. The CLI also supports provider-independent prepare/import
 and protected Codex execution on macOS (audited CLI version 0.154.0).

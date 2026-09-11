@@ -61,5 +61,6 @@ exports.run = async () => {
   assert.match(vscode.window.activeTextEditor.document.getText(), /Deterministic offline/);
   assert.deepEqual(fs.readFileSync(doc.uri.fsPath), disk, 'Margin did not save the dirty draft');
   await require('./navigation.cjs').run(api,root,session);
+  await require('./focus.cjs').run(api,root);
   console.log('Margin Extension Development Host smoke passed: threads, automatic collapse on resolve/dismiss, tree, dirty-buffer mapping, local state, detached targets, manual reattachment, original/current comparison, editorial letter.');
 };
