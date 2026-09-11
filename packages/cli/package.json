@@ -1,0 +1,1 @@
+{"name":"margin-cli","version":"0.1.0","private":true,"bin":{"margin":"dist/main.js"},"main":"dist/main.js","dependencies":{"@margin/core":"0.1.0"},"engines":{"node":">=22"}}

@@ -1,0 +1,1 @@
+{"version":"0.2.0","configurations":[{"name":"Margin: Offline Development Host","type":"extensionHost","request":"launch","args":["--extensionDevelopmentPath=${workspaceFolder}/packages/vscode","${workspaceFolder}/.demo/markdown"],"outFiles":["${workspaceFolder}/packages/vscode/dist/**/*.js"],"preLaunchTask":"Build Margin"}]}

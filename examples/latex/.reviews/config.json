@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "files": ["main.tex", "sections/introduction.tex", "sections/methods.tex"],
+  "context_files": ["macros.tex", "references.bib"],
+  "brief": "Focus on the argument, inferential limits, and technical consistency. Preserve deliberate pacing.",
+  "max_comments": 8,
+  "limits": {"file_bytes": 524288, "packet_bytes": 2097152, "block_chars": 6000}
+}

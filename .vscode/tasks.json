@@ -1,0 +1,1 @@
+{"version":"2.0.0","tasks":[{"label":"Build Margin","type":"shell","command":"npm run build","problemMatcher":"$tsc","group":"build"}]}
