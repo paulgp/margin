@@ -3,15 +3,14 @@
 Source-first, comment-only editorial review for Markdown, Typst, and LaTeX.
 Margin displays native comment threads and a review tree. It never edits or saves your draft.
 
-Install the companion CLI from the Margin repository:
+Install or update both the companion CLI and this extension from the Margin repository:
 
 ```sh
-npm ci
-npm run build
-npm link --workspace margin-cli
+npm run setup
 ```
 
-From your writing project's root:
+Reload your existing VS Code window once after installation. F5 and a separate Development Host
+window are only needed when developing the extension. From your writing project's root:
 
 ```sh
 margin init

@@ -1,5 +1,6 @@
 {
-  "name":"margin","displayName":"Margin","description":"Source-first, comment-only writing review for Markdown, Typst, and LaTeX.","version":"0.1.0","publisher":"margin-local","private":true,
+  "name":"margin","displayName":"Margin","description":"Source-first, comment-only writing review for Markdown, Typst, and LaTeX.","version":"0.2.0","publisher":"margin-local","private":true,
+  "repository":{"type":"git","url":"https://github.com/paulgp/margin.git"},
   "license":"MIT","engines":{"vscode":"^1.100.0"},"categories":["Other"],"main":"./dist/extension.js",
   "activationEvents":["workspaceContains:.reviews/config.json"],
   "capabilities":{"untrustedWorkspaces":{"supported":false,"description":"Margin reads selected local source snapshots and writes local discussion sidecars."},"virtualWorkspaces":false},

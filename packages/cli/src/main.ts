@@ -6,9 +6,10 @@ import {init, prepare, importResponse, diagnostic} from '@margin/core';
 import {mockProvider} from './providers';
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
-  const {values, positionals} = parseArgs({args, allowPositionals: true, strict: true, options: {project: {type: 'boolean'}, brief: {type: 'string'}, 'max-comments': {type: 'string'}, provider: {type: 'string'}, model: {type: 'string'}, root: {type: 'string'}, json: {type: 'boolean'}, help: {type: 'boolean'}}});
-  const root = fs.realpathSync(path.resolve(values.root ?? process.cwd())); const [command, ...rest] = positionals;
+  const {values, positionals} = parseArgs({args, allowPositionals: true, strict: true, options: {project: {type: 'boolean'}, brief: {type: 'string'}, 'max-comments': {type: 'string'}, provider: {type: 'string'}, model: {type: 'string'}, root: {type: 'string'}, json: {type: 'boolean'}, help: {type: 'boolean'}, version: {type: 'boolean', short: 'v'}}});
   const output = (data: unknown, human: string) => process.stdout.write(values.json ? JSON.stringify(data) + '\n' : human + '\n');
+  if (values.version) { const version: string = require('../package.json').version; output({version}, `margin ${version}`); return; }
+  const root = fs.realpathSync(path.resolve(values.root ?? process.cwd())); const [command, ...rest] = positionals;
   if (values.help || !command) { output({commands: ['init', 'prepare', 'review', 'import', 'doctor']}, 'Margin — source-first, comment-only review\n\nmargin init\nmargin prepare <file> | --project [--brief TEXT] [--max-comments N] [--json]\nmargin review <file> | --project --provider mock|codex [--model NAME]\nmargin import <request-id> <response.json> [--json]\nmargin doctor [--json] (macOS connection diagnostics; no model call)\n\nAll commands accept --root DIR. Reviews read saved disk contents; save deliberately in your editor first. Margin never saves or edits drafts.'); return; }
   if (command === 'doctor') {
     if (rest.length) throw new Error('doctor takes no file arguments');

@@ -4,21 +4,49 @@ Margin is a local, source-first writing reviewer. Ask for editorial comments fro
 
 Supports UTF-8 `.md`, `.markdown`, `.typ`, and `.tex`, without rendering or compilation. Requires Node 22 or 24 LTS, npm, and desktop VS Code 1.100+. Protected Codex execution currently requires macOS and Codex CLI **0.154.0**; the core, mock provider, and prepare/import workflow are portable.
 
-## Install and try offline
+## Install
 
-From this repository:
+With Node 22 or 24 LTS, npm, and desktop VS Code installed, run this from your Margin checkout:
 
 ```sh
-npm ci
-npm run build
-npm link --workspace margin-cli
-margin --help
-npm run demo
+npm run setup
 ```
 
-`margin` is now on your npm global bin path. If that directory is not on your shell's PATH, use `npm run margin -- --help` (or other arguments after `--`) from this repository. The CLI is bundled; no compiled entry-point guessing is needed.
+Setup installs the pinned build dependencies, builds matching **0.2.0** CLI/extension packages, checks their SHA-256 hashes, and installs both. It detects VS Code on PATH or in the usual macOS Applications locations. The CLI is installed into your existing npm global prefix as a standalone package, so it keeps working if you move the checkout. No `npm link` or F5 session is needed. Nothing is published, no model is called, and setup does not open an editor window.
 
-Open this repository in VS Code and press **F5**, selecting **Margin: Offline Development Host**. The new window opens `.demo/markdown`. Trust this disposable workspace to activate Margin, open `draft.md`, and use **Margin: Select Review**. The Explorer's Margin tree lists every comment. Click a comment to reveal its thread. The demo creates Markdown, Typst, and multi-file LaTeX workspaces under `.demo/`; rerunning it preserves existing source edits and creates new review sessions. No authentication or model/network call is involved.
+In your existing VS Code window, run **Developer: Reload Window** once after installation. Open your writing project's folder normally, save your draft deliberately, and run in that folder's terminal:
+
+```sh
+margin --version
+margin init  # once per writing project
+margin review draft.md --provider mock
+```
+
+Use **Margin: Select Review** when the new review appears. For a real review, use `--provider codex` and your editorial brief. Reviewing remains explicitly initiated from the CLI; the extension displays comments in your normal editor window.
+
+If the npm prefix is not writable, use `npm run setup -- --prefix "$HOME/.local"`. Setup prints a PATH command if the installed `margin` is not the one your shell finds; it never edits shell startup files or npm configuration. Use `--code /path/to/code` for another VS Code installation, `--profile NAME` for a specific profile, or `--cli-only` on a machine without VS Code. Run `npm run setup -- --help` for all options. The setup helper supports macOS/Linux; core/CLI artifacts remain portable.
+
+## Update
+
+From the same checkout:
+
+```sh
+git pull --ff-only
+npm run setup
+```
+
+Reload your VS Code window once. Setup replaces only the Margin CLI and extension, retains your drafts/reviews, and refuses to silently downgrade a newer installed version. If installation stops partway through, it identifies which component succeeded; rerun the same command to finish. An existing development `npm link` for Margin in the selected npm prefix is replaced by the standalone package.
+
+## Try offline
+
+```sh
+npm run demo
+code --reuse-window .demo/markdown
+```
+
+Trust the disposable workspace, open `draft.md`, and use **Margin: Select Review**. The Explorer's Margin tree lists every comment. Click a comment to reveal its thread. The demo creates Markdown, Typst, and multi-file LaTeX workspaces under `.demo/`; rerunning it preserves existing source edits and creates new review sessions. No authentication or model/network call is involved. `--reuse-window` opens the demo in your existing editor; opening a new window is your choice.
+
+For extension development, open the repository in VS Code and press **F5**, selecting **Margin: Offline Development Host**. That development-only launch opens a separate window on `.demo/markdown`. You can also use `npm run margin -- ...` directly from the checkout without installing the CLI.
 
 In the demo window:
 
@@ -100,10 +128,12 @@ For a renamed file or a cross-file passage move, add its new path to the manifes
 npm run typecheck
 npm test
 npm run test:extension
+npm run test:install
 npm run package
-code --install-extension dist/margin-0.1.0.vsix
 ```
 
-Packaging creates `dist/margin-0.1.0.vsix` locally; nothing is published. The default test suite is offline and uses a fake Codex executable. On macOS the provider tests also exercise actual Seatbelt read/write denials. The separate Development Host smoke test opens an isolated disposable workspace; it uses the installed macOS VS Code when found, otherwise the VS Code test runner may download one. Set `MARGIN_VSCODE_EXECUTABLE` to use an existing installation elsewhere.
+Packaging creates `dist/margin-0.2.0.vsix`, `dist/margin-cli-0.2.0.tgz`, and `dist/margin-0.2.0.json` containing their checksums. Filenames and package versions are derived from the workspace manifests and must agree. Both packages are self-contained: the CLI archive has no runtime npm dependencies or installation scripts, and the VSIX needs no development checkout. Nothing is published. To install already built artifacts without fetching dependencies or rebuilding, run `npm run setup -- --from-dist`. The checksum manifest detects corruption; it is not a signature or proof of who produced an artifact. See [installation and release details](docs/installation.md) for manual installation and uninstalling.
+
+The default test suite is offline and uses a fake Codex executable. On macOS the provider tests also exercise actual Seatbelt read/write denials. `test:install` builds/packages and installs the actual CLI and VSIX into temporary npm/VS Code directories, runs a mock review, and checks repeat installation without modifying your normal extension installation. It may download the pinned build dependencies; it makes no model requests. The separate Development Host smoke test opens an isolated disposable workspace; it uses the installed macOS VS Code when found, otherwise the VS Code test runner may download one. Set `MARGIN_VSCODE_EXECUTABLE` to use an existing installation elsewhere.
 
 This MVP supports one root (the first workspace folder), one selected session, and one state-writing extension instance. Concurrent state changes are detected; refresh and retry after a conflict. No semantic/fuzzy matching, rewrapping normalization, automatic issue reassessment, history timeline, branch reconciliation, or prose edits are implemented. See [architecture and limits](docs/architecture.md) and [verification notes](docs/testing.md).

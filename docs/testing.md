@@ -2,6 +2,8 @@
 
 Run `npm ci`, then:
 
+Margin **0.2.0** installation verification: build/typecheck and all **56** offline tests passed. `npm run test:install` also passed using actual npm and VS Code 1.136.1 on the development desktop (macOS 26.6.2, Node 22.22.0). It ran the complete setup path, including `npm ci`, packaging, replacement of a simulated older development link, installation of the CLI and VSIX into temporary directories, version checks, an offline mock review through the installed CLI, and same-version reinstallation. Draft/review bytes and the former linked source stayed unchanged. The CLI is a regular standalone installation with no runtime npm dependencies or install scripts. The normal VS Code extension directory was not targeted. This smoke verifies package installation; the native comment UI is covered separately by the Development Host smoke below. No model call was made for this change. Installation on the laptop and non-macOS platforms has not been verified here.
+
 Initial implementation verification on Node 22.22.0/macOS: build and typecheck passed; all **37** original default tests passed with no skips; the actual Development Host smoke passed; the three-workspace offline demo ran; CLI linking/execution worked in an isolated npm prefix; VSIX packaging and `npm audit` passed (zero reported vulnerabilities). Additional provider tests cover progress privacy, split UTF-8 events, and retention of diagnostic classes on timeout.
 
 Progress-update verification: build/typecheck and all **40** default tests passed, with no skips. A separate live review completed as described below; no live calls were added to the default test suite.
@@ -29,7 +31,9 @@ A separate real Codex review with the certificate bundle completed on the server
 | `npm test` | Offline core/CLI/state/anchoring/provider suite |
 | `npm run demo` | Three disposable offline example workspaces; existing edits preserved |
 | `npm run test:extension` | Isolated actual Extension Development Host smoke |
-| `npm run package` | Local `dist/margin-0.1.0.vsix`; no publication |
+| `npm run test:install` | Actual install/update smoke in temporary npm and VS Code directories |
+| `npm run package` | Versioned CLI tarball, VSIX, and checksum manifest in `dist/`; no publication |
+| `npm run setup` | Build and install CLI/extension for ordinary use in the current VS Code window |
 
 The core/CLI tests cover byte/hash preservation, frozen-request import after user changes, strict rejection/diagnostics, source/context separation, scope/symlink rejection, packet limits, UTF-16 and surrogate boundaries, CRLF/BOM, multi-edit mapping, undo/redo, unchanged/moved/renamed/cross-file/changed/deleted/ambiguous passages, stale generations, local state persistence and conflict detection, and source/HEAD/index invariants on success and failure. Git fixture objects are constructed directly in disposable directories; no Git commits are made. Runtime Git commands remain read-only.
 
