@@ -1,5 +1,7 @@
 # Verification and manual checks
 
+README screenshot verification (2026-09-11): `npm run screenshots` built the project and used Playwright against the actual VS Code 1.136.1 desktop application on macOS. It opened an imported example comment, typed an unsaved revision, and opened the original/current diff. The capture checked that the revision was displayed and the draft on disk remained byte-for-byte unchanged. Both Light Modern images were visually inspected; the README and new guides passed local link/heading checks and `git diff --check`. These are hand-authored fixture comments, with no model call. The full test suite was not rerun for this documentation/tooling change. See [capture instructions](screenshots.md).
+
 Margin **0.4.0** line-focus verification: all **72** offline tests passed, including focused Markdown/Typst/multi-file LaTeX prepare/import, repeated line lists, BOM/CRLF/emoji offsets, exact byte/span preservation, invalid/blank/out-of-file focus, context-only targets, whole-response rejection for out-of-focus quotations, immutable focus after user edits, tamper/version checks, legacy reviews, and unchanged source/Git evidence. The protected Codex adapter was exercised with a fake executable that checked the focus packet and returned a comment within scope; no live model call was made. The actual VS Code 1.136.1 Development Host smoke passed on the desktop, including focused version 2 session loading, visible focus labels, Unicode/CRLF selections, unsaved movement beyond original line numbers, and full read-only originals. Existing navigation/state/UI smoke checks also passed. Laptop verification remains separate.
 
 The 0.4.0 installation smoke passed with real npm/VS Code installs in temporary directories. It ran both full-file and multi-range focused mock reviews through the installed CLI, checked focus containment, and verified repeat installation preserved the source and both sessions. `npm ci`, build/typecheck, CLI/VSIX packaging, and artifact checksum verification passed. Packages are `dist/margin-0.4.0.vsix`, `dist/margin-cli-0.4.0.tgz`, and `dist/margin-0.4.0.json`.
@@ -42,6 +44,7 @@ A separate real Codex review with the certificate bundle completed on the server
 | `npm run demo` | Three disposable offline example workspaces; existing edits preserved |
 | `npm run test:extension` | Isolated actual Extension Development Host smoke |
 | `npm run test:install` | Actual install/update smoke in temporary npm and VS Code directories |
+| `npm run screenshots` | Playwright captures of actual VS Code with a disposable example |
 | `npm run package` | Versioned CLI tarball, VSIX, and checksum manifest in `dist/`; no publication |
 | `npm run setup` | Build and install CLI/extension for ordinary use in the current VS Code window |
 
